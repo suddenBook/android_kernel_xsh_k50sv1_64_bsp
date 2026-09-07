@@ -1,0 +1,31 @@
+config MTK_IMGSENSOR
+	tristate "enable MTK cam driver"
+	default n
+	help
+	  It support different sensor.
+          If this option is set to m,
+          it will build module.
+
+config MTK_CAM_MAX_NUMBER_OF_CAMERA
+	int "max number of camera supported"
+	default 2
+	help
+	  max number of camera supported
+
+config MTK_EFUSE_DOWNGRADE
+	bool "a variant of downgrade chip"
+	default n
+	help
+	  a variant of downgrade chip
+
+config K50SV1_STOCK_SENSOR_LIST
+	bool "k50sv1_64_bsp stock sensor-list layout"
+	depends on MTK_IMGSENSOR
+	default n
+	help
+	  Lay out kdSensorList[] exactly like the shipped k50sv1_64_bsp
+	  kernel: ten entries in the stock order with the stock ids and
+	  names.  The camera HAL searches sensors by index into this table,
+	  so the two fitted drivers (IMX145, GC5025) must sit at indices 1
+	  and 6; the other eight entries bind to a placeholder that reports
+	  no sensor.

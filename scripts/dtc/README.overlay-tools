@@ -1,0 +1,138 @@
+The MTK overlay host tools are built from source by scripts/dtc/Makefile.
+They are separate from the kernel's original dtc program and from loadable
+target kernel modules. No precompiled dtc_overlay or ufdt_apply_overlay is
+stored in this tree.
+
+Source provenance
+-----------------
+
+scripts/dtc/aosp/dtc contains the required source subset from the AOSP-derived
+LineageOS external/dtc repository:
+  https://github.com/LineageOS/android_external_dtc
+  0a190a66e1d414b546e053f844854d27fe3f3bd9
+
+scripts/dtc/aosp/libufdt contains the required source subset from:
+  https://github.com/LineageOS/android_system_libufdt
+  c54fd0834ab980033cedd9441e83674e8a984d5f
+
+aosp/UPSTREAM.json records the SHA-256 of every imported upstream file before
+the local changes below. The import was read from those pinned Git objects,
+not from mutable working-copy files. GPL/NOTICE/README.license and the license
+markers are retained. DTC uses its GPL license. libufdt uses Apache 2.0 and
+links the separately dual-licensed libfdt under its permissive BSD terms;
+all original per-file copyright and license notices remain present.
+
+Local source changes from those hashes are limited to:
+  aosp/dtc/dtc-lexer.l:
+    Declare the parser-owned yylloc as extern, avoiding a duplicate definition
+    with host compilers that default to -fno-common.
+  aosp/dtc/treesource.c:
+    Remove an extra blank line at end of file; no code change.
+  aosp/libufdt/tests/src/ufdt_overlay_test_app.c:
+    Return a reported error when overlay application returns NULL instead of
+    dereferencing NULL while writing the output.
+  aosp/libufdt/tests/src/util.c:
+    Reject failed seeks/nonpositive input lengths, and report partial writes
+    or fclose() errors rather than claiming a successful output.
+
+Build integration
+-----------------
+
+The normal kernel scripts target builds both programs using HOSTCC and
+HOSTLDFLAGS. Generated lex/yacc C and headers stay under objtree. No host dtc,
+fdtoverlay, libfdt, libufdt, or alternate prebuilt executable is selected.
+
+scripts/Makefile.lib invokes:
+  $(objtree)/scripts/dtc/dtc_overlay -@ -H both ...
+and lists that executable as an explicit prerequisite of each DTB.
+scripts/drvgen/drvgen.mk invokes:
+  $(objtree)/scripts/dtc/ufdt_apply_overlay BASE OVERLAY OUTPUT
+after scripts and the DTBs have built. The merge loop stops at its first
+failure so a later successful overlay cannot hide an earlier error.
+
+The explicit -H both is required for compatibility. The old binary reported
+DTC 1.4.2-Android-build and emitted both phandle and linux,phandle. The pinned
+source reports DTC 1.4.4-Android-build and defaults to ePAPR-only phandle.
+Without -H both it removes 148 linux,phandle properties from mt6755.dtb and
+93 from the K50 overlay. With -H both the current target outputs are byte-for-
+byte identical, including symbols, fixups, property order, and padding.
+
+Standalone kernel builds require flex and bison, or explicit HOSTLEX and
+HOSTYACC overrides. The Android build's restricted PATH does not allow the
+host flex/bison commands. Pass the existing Android toolchain paths explicitly
+through the kernel make flags, using absolute paths to the Android tree:
+  HOSTLEX=/absolute/android/prebuilts/build-tools/linux-x86/bin/flex
+  HOSTYACC=/absolute/android/prebuilts/build-tools/linux-x86/bin/bison
+  BISON_PKGDATADIR=/absolute/android/prebuilts/build-tools/common/bison
+
+The bundled Android Flex 2.6.4 and Bison 2.7 were verified. System Flex 2.6.4
+and Bison 3.8.2 were also verified. The Bison data path is part of the recorded
+generation command, so changing it invalidates the generated outputs.
+
+Verification for k50sv1_64_bsp
+----------------------------
+
+The bounded integration check used a fresh separate kernel output directory,
+the actual build-2 .config, its Clang 8 host compiler/GCC 4.9 target compiler,
+and the same explicit Python 2.7 DCT interpreter. olddefconfig, scripts, and
+dtbs completed. The generated pin configuration and both DTS files were built
+through the real Kbuild path. No full Android build or phone operation was
+part of this check.
+
+All three outputs match the preserved build-2 files and old tools exactly:
+  mt6755.dtb              68590 bytes
+    7238ba93ab8d56d282be216195720d558023ce601b76bb99e23cf1c82ac92fdd
+  k50sv1_64_bsp.dtb       34627 bytes
+    ec5cf27cd38358212890f2917040d6a31216c9b27b598de35f9428ddb0d411c1
+  k50sv1_64_bsp.dtb.merge 103217 bytes
+    cf70ef55b484bb38969bf68011ed1bcfda6993751d47080ca3f48db32b568ae3
+
+compare-overlay-tools.py accepts explicit old/new executable paths, a preserved
+kernel output directory containing those DTBs and their preprocessed
+.NAME.dtb.dts.tmp files, and a directory for its evidence:
+
+  python3 scripts/dtc/compare-overlay-tools.py \
+    --old-dtc /preserved/dtc_overlay \
+    --old-ufdt /preserved/ufdt_apply_overlay \
+    --new-dtc /kernel-output/scripts/dtc/dtc_overlay \
+    --new-ufdt /kernel-output/scripts/dtc/ufdt_apply_overlay \
+    --baseline-output /preserved/kernel-output \
+    --output /comparison-evidence
+
+Its 22 checks cover both compilers, all four old/new merger/input pairings,
+CLI errors, missing/malformed input, unwritable output, an unresolved overlay
+symbol, and a delayed write failure. Nine ordinary error cases preserve the
+old nonzero exit code. Two error-path improvements are intentional:
+  unresolved symbol: old process died with SIGSEGV; new process returns 1;
+  small output to /dev/full: old process returned 0; new process returns 1.
+
+Kbuild dependency checks also confirmed that an unchanged invocation does not
+recompile/relink either tool or regenerate either DTB, changing DTC source
+rebuilds the compiler and both DTBs, changing UFDT source rebuilds only that
+tool and the merged output, and deleting the generated parser files causes
+them to be regenerated. Each case retained identical final content. A two-
+overlay make harness using the real drvgen.mk confirmed that failure of the
+first overlay returns failure and prevents the later overlay from running.
+
+Other tracked host binaries
+--------------------------
+
+scripts/mkimage remains a legacy MediaTek image/header tool. No tracked kernel
+rule invokes that path. The optional MTK_HEADER_SUPPORT=yes branch in the
+legacy Android.mk names $(HOST_OUT_EXECUTABLES)/mkimage, while the generic
+U-Boot uImage rules use scripts/mkuboot.sh and a different tool interface.
+The active Lineage device build selects Image.gz through its kernel.mk and
+does not invoke the tracked scripts/mkimage. Matching source for this legacy
+binary was not found in the available tree. AOSP external/u-boot/tools/mkimage.c
+is a different tool/interface and was not substituted.
+
+tools/dct/old_dct/DrvGen and DrvGen.exe remain legacy assets. DrvGen.py invokes
+the Linux binary only when its DWS input cannot be parsed as XML. The active
+CONFIG_ARCH_MTK_PROJECT=k50sv1_64_bsp input is valid XML, so the source Python
+generator handles it and the old binary is not executed. Other preserved DWS
+files, including k50v1_64_bsp.dws, use the old format; matching old generator
+source was not found. The Windows PE is not called by the kernel build.
+These inactive binaries were retained rather than removed from unsupported
+legacy configurations. The tracked host ELF count therefore falls from four
+to two, and the legacy PE remains. This is not a claim that all BSP binaries
+or all alternate board configurations have been replaced or validated.

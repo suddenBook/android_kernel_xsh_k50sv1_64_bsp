@@ -1,0 +1,27 @@
+WMT/STP support for the native connectivity source build.
+
+See ../README.md for build integration and ../UPSTREAM.md for source provenance.
+
+Host regression, run from the kernel root:
+
+  python3 drivers/misc/mediatek/connectivity/source/common/test/test_chrdev_init.py
+
+The test extracts the actual GPS and Bluetooth startup/teardown functions,
+compiles them with host stubs, and injects failures at wakeup-source allocation,
+device-number registration, cdev_add(), class_create(), and device_create(). It
+checks error propagation, resource cleanup, and lock/wakeup-source readiness at
+device publication with dynamic nodes enabled and disabled. It covers the
+MT6755 configuration without optional GPS EMI or dedicated firmware logging.
+Use --revision REF to check an older committed version of the sources. It does
+not build the kernel or exercise hardware.
+
+WMT debug-read regression, also from the kernel root:
+
+  python3 drivers/misc/mediatek/connectivity/source/common/test/test_wmt_debug_read.py
+
+This extracts wmt_dbg_read() and its coexistence-buffer type, then checks output
+bounds, reply contents, zero-length/EOF reads, and failed user copies under host
+AddressSanitizer and UndefinedBehaviorSanitizer. The debug interface retains its
+one-shot reply behavior: a short successful read consumes that reply. A
+zero-length read or failed copy does not consume it. --revision REF --case short
+reproduces the old 21-byte copy for a one-byte read of a four-byte reply.

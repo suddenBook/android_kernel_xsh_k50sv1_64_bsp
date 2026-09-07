@@ -1,0 +1,10 @@
+config USB_CC_WUSB3801X
+	bool "WUSB3801X Type-C configuration-channel controller"
+	depends on I2C=y && MTK_ACCDET
+	default n
+	---help---
+	  WillSemi WUSB3801X CC-logic controller on the k50sv1_64_bsp USB-C
+	  port.  It detects the attached partner, advertises host current,
+	  and on an audio accessory routes the analog switch and hands the
+	  headset to ACCDET.  Host mode itself is owned by the MediaTek USB
+	  controller's ID-pin path.

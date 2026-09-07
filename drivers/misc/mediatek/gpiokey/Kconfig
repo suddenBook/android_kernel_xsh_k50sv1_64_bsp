@@ -1,0 +1,8 @@
+config MTK_GPIO_HALL
+	bool
+	depends on TOUCHSCREEN_MTK_FOCALTECH_FT8057=y
+	default y
+	help
+	  Build the GPIO7 Hall/stylus path fitted to k50sv1_64_bsp.  This is
+	  an exact built-in pair with the FT8057 touchscreen and is unrelated
+	  to the generic MediaTek hallsensor driver.

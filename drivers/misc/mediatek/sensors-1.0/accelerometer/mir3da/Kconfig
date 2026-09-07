@@ -1,0 +1,12 @@
+config MTK_MIR3DA
+	bool "MiraMEMS MIR3DA accelerometer"
+	depends on CUSTOM_KERNEL_ACCELEROMETER
+	depends on I2C=y
+	depends on MTK_SENSORS_1_0
+	default n
+	help
+	  MiraMEMS NSA-family accelerometer (DA380 class, WHO_AM_I 0x13) on the
+	  MediaTek sensors-1.0 framework, the vendor reference driver.  It
+	  binds the mediatek,gsensor_mir3da node; on k50sv1_64_bsp that node
+	  says 0x26 while the part answers at 0x27, which the driver's probe
+	  handles the way the shipped kernel does.

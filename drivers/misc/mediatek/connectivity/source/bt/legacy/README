@@ -1,0 +1,22 @@
+Bluetooth character-device module for the native connectivity source build.
+
+The open/close mutex protects the exclusive-open flag together with WMT power
+transitions and callback registration. A second open waits for an in-progress
+transition, then returns the existing -EIO error if another open succeeded.
+Close releases ownership after callback removal and the function-off request.
+Failed open/close paths release the mutex so a later open can retry.
+
+From the kernel root, run the host concurrency regression with:
+
+  python3 drivers/misc/mediatek/connectivity/source/common/test/test_bt_open.py
+
+The test extracts BT_open/BT_close and the mutex declaration. Pthread gates
+hold the first WMT power transition until a second caller reaches either the
+mutex or the old overlapping WMT call. It checks simultaneous opens, open after
+a failed first open, close/open overlap, existing-open rejection, transport
+failures, and retry. Both dedicated-log configurations are compiled; log calls
+use host stubs. No timing sleeps, module load, or hardware access is required.
+
+Use --revision REF --case open-open or --case close-open to reproduce the old
+interleavings. See ../../common/README for startup and WMT read regressions,
+and ../../README.md for source integration and runtime dependencies.

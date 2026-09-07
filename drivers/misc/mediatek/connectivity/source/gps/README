@@ -1,0 +1,25 @@
+GPS character-device module for the native connectivity source build.
+
+The MT6755 build uses stp_chrdev_gps.c. Module initialization returns the
+character-device initialization error and releases resources acquired before
+the failure. Its locks and wakeup source are ready before cdev_add() makes the
+device reachable.
+
+The host regression in ../common/test/test_chrdev_init.py exercises startup
+failure and normal teardown without loading the module. See ../common/README
+for the command and coverage. Firmware, calibration, and the GNSS HAL remain
+separate runtime dependencies described in ../README.md.
+
+If STP is not ready after WMT enables GPS, open unregisters its reset callback,
+requests function-off, and restores the closed/reset state before returning
+-ENODEV. A failed function-off request is logged; it does not turn the failed
+open into success. The current callback registration implementations have no
+failure path for the fixed GPS identifiers: WMT returns TRUE and STP returns 0.
+
+From the kernel root, run the transport rollback/retry regression with:
+
+  python3 drivers/misc/mediatek/connectivity/source/common/test/test_gps_open.py
+
+It extracts GPS_open/GPS_close and checks readiness failure, reset arrival,
+failed power rollback, successful retry, the function-on failure path, and
+normal teardown. --revision REF runs those checks against committed source.
