@@ -383,6 +383,34 @@ static unsigned int _mt_cpufreq_get_cpu_level(void)
 		binLevel_eng);
 
 #if defined(CONFIG_MTK_PMIC_CHIP_MT6353)
+	/*
+	 * k50sv1_64_bsp: force CPU_LEVEL_1 (big cluster 1807MHz).
+	 *
+	 * Stock MTK behaviour on an MT6353 board is CPU_LEVEL_0 -- the
+	 * opp_tbl_big_e0_0 / CPU_DVFS_FREQ*_L_6353 table, capped at 1508MHz --
+	 * for every part whose efuse function code is not one of the specially
+	 * binned "55s" values (0x82 / 0x86).  This die reads func_code_0 == 0x01
+	 * (/proc/chip/code_func, i.e. get_devinfo_with_index(21) & 0xFF), which
+	 * MediaTek's own non-MT6353 path a few lines below maps to CPU_LEVEL_1,
+	 * so the silicon is binned for the 1807MHz FY table; only the MT6353
+	 * power-delivery configuration held it at 1508.
+	 *
+	 * CPU_LEVEL_1 is fully provisioned upstream: opp_tbl_big_e1_0 (1807 /
+	 * 1651 / 1495 / 1196 / 1027 / 871 / 663 / 286 MHz, same voltage column
+	 * as e0, top OPP 1.15V == EEM VMAX_VAL) and its matching PLL programming
+	 * table opp_tbl_method_L_e1.  The little cluster is untouched:
+	 * opp_tbl_little_e1_0 is identical to e0 (1001MHz top).  Both levels
+	 * report DVFS_TABLE_TYPE_FY, so PPM keeps using power_table_FY and the
+	 * LCM-on pin still resolves to power_tbl[0] with no policy change.
+	 *
+	 * Caveat, deliberately accepted: this board has no MT6311 external buck
+	 * (no pmic_6311_thread => g_mt6311_hw_exist == 0), and both clusters
+	 * share one MT6353 VPROC rail, so all eight cores are fed from a single
+	 * internal buck at the 1.15V top OPP.  power_table_FY is still the
+	 * 1508-calibrated static table, so PPM's power model -- and therefore
+	 * DLPT's battery-current budget -- now under-estimates the big cluster
+	 * by roughly a third.
+	 */
 	if (cpu_dvfs_is_extbuck_valid()) {
 		/* If FY */
 		is_extbuck_valid = 1;
@@ -390,9 +418,9 @@ static unsigned int _mt_cpufreq_get_cpu_level(void)
 		if (func_code_0 == 0x82 || func_code_0 == 0x86)
 			return CPU_LEVEL_2;
 		else
-			return CPU_LEVEL_0;
+			return CPU_LEVEL_1;
 	} else
-		return CPU_LEVEL_0;
+		return CPU_LEVEL_1;
 #else
 	/* get CPU clock-frequency from DT */
 #ifdef CONFIG_OF
