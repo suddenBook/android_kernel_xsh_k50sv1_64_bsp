@@ -20,7 +20,7 @@ The Android source checkout expects this repository at
 `kernel/xsh/k50sv1_64_bsp`.
 
 The active configuration is defined by the device tree's
-[BoardConfig.mk](https://github.com/suddenBook/android_device_xsh_k50sv1_64_bsp/blob/main/BoardConfig.mk):
+[BoardConfig.mk](https://github.com/suddenBook/android_device_xsh_k50sv1_64_bsp/blob/lineage-17.1/BoardConfig.mk):
 
 - Base configuration:
   [arch/arm64/configs/k50sv1_64_bsp_stock_defconfig](arch/arm64/configs/k50sv1_64_bsp_stock_defconfig)
@@ -52,15 +52,15 @@ packaging retains the stock DTB and recovery DTBO assets supplied by the
 device tree. A generated source DTB is therefore not a drop-in replacement
 for those packaging inputs.
 
-Release builds also depend on the matching device/vendor trees, the Android
-build integration, and the build orchestration and module ABI checks packaged
-in the device tree's
-[build-support archive](https://github.com/suddenBook/android_device_xsh_k50sv1_64_bsp/tree/main/build-support).
-Follow the device tree's
-[BUILDING.md](https://github.com/suddenBook/android_device_xsh_k50sv1_64_bsp/blob/main/BUILDING.md)
-for the required workspace layout and additional inputs. The final kernel
-configuration, image and module symbol versions must be validated together
-before packaging.
+Current diagnostic builds use the matching `lineage-17.1` device/vendor trees
+and the owner's sibling `bringup/` workspace. The build compiles kernel and all
+five connectivity modules together; validate their symbol versions before
+packaging. The selected 1.807 GHz, startup PPM-thermal removal and screen-on/off
+CPU policy are owner requirements and must survive stable-kernel upgrades.
+
+The canonical tree remains 3.18.119. A separately reviewed 3.18.120 candidate
+and its build/ABI evidence are in `bringup/k50sv1-bringup/notes/kernel-upgrade.md`;
+that candidate has not yet been adopted or boot-tested.
 
 ## First release source
 
