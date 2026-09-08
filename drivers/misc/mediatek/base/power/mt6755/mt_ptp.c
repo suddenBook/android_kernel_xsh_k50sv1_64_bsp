@@ -120,14 +120,7 @@ unsigned int littleFreq_FY[8] = {1001000, 910000, 819000, 689000, 598000, 494000
 	#if defined(CONFIG_MTK_MT6750TT)
 		unsigned int bigFreq_FY[8] = {1807000, 1430000, 1352000, 1196000, 1027000, 871000, 663000, 286000};
 	#else
-		/* k50sv1_64_bsp: must mirror opp_tbl_big_e1_0 (CPU_DVFS_FREQ*_L)
-		 * exactly -- EEM derives det->freq_tbl[] as a percentage of
-		 * det->max_freq_khz from this array, so any mismatch with the
-		 * cpufreq OPP table under-volts the affected operating points.
-		 * Note this is NOT the MT6750TT row above: that one keeps
-		 * 1430/1352 for OPP1/2 and belongs to a different OPP table.
-		 */
-		unsigned int bigFreq_FY[8] = {1807000, 1651000, 1495000, 1196000, 1027000, 871000, 663000, 286000};
+		unsigned int bigFreq_FY[8] = {1508000, 1430000, 1352000, 1196000, 1027000, 871000, 663000, 286000};
 	#endif
 #else
 unsigned int bigFreq_FY[8] = {1807000, 1651000, 1495000, 1196000, 1027000, 871000, 663000, 286000};

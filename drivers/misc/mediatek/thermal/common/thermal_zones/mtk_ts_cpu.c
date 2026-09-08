@@ -118,17 +118,8 @@ static int thermal5A_status;
 
 #if defined(CONFIG_MTK_PMIC_CHIP_MT6353)
 int thermal_6353_5A_status = 0;
-/*
- * k50sv1_64_bsp: raised from 85/83C.  Despite the name this trip is purely
- * temperature driven (see the CONFIG_MTK_PMIC_CHIP_MT6353 block in
- * mtk_ts_cpu_dump_temp_and_throttle()); it asks PPM to clamp the big cluster
- * to PPM_5A_LIMIT_FREQ_IDX.  This handset has a liquid-metal TIM and a vapour
- * chamber retrofit, so the stock trip fires well below what the hardware now
- * tolerates.  Runtime-writable too, via the three-value sscanf in
- * mtk_ts_cpu.c (thermal_5A_limit_H, thermal_5A_limit_L, fast_polling_trip_temp).
- */
-int thermal_5A_limit_H = 100000; /*100C*/
-int thermal_5A_limit_L = 97000; /*97C*/
+int thermal_5A_limit_H = 85000; /*85C*/
+int thermal_5A_limit_L = 83000; /*83C*/
 #endif
 
 static int tc_mid_trip = -275000;
