@@ -53,10 +53,11 @@ struct ppm_perfserv_data {
  *
  * The owner's requirement for this handset is the two extremes: panel lit ->
  * every core of both clusters online at its top OPP; panel dark -> one little
- * core during normal MT6755 operation. The screen-off core limit is applied
- * after policy arbitration in mt_ppm_main.c; PTPOD calibration and fixed chip
- * segments retain their existing requirements. The screen-on request is
- * implemented as a second requester of
+ * core during normal MT6755 operation. mt_ppm_main.c also enforces these core
+ * limits and the screen-on maximum clocks after ordinary policy arbitration.
+ * Power budgets, the final 5A limit, PTPOD calibration, fixed chip segments and
+ * the dedicated suspend path retain their existing requirements. The
+ * screen-on request is implemented as a second requester of
  * this policy's perf_idx: while the LCM is on, PERF_SERV asks for
  * lcmon.perf_idx (default: the platform maximum, power_tbl[0].perf_idx, which
  * is what /proc/ppm/policy/perfserv_max_perf_idx reports -- 5616 on the
@@ -70,7 +71,7 @@ struct ppm_perfserv_data {
  *
  * The screen edge is FB_EVENT_BLANK, delivered by the LCM_OFF policy's FB
  * notifier (mt_ppm_policy_lcm_off.c), which calls ppm_perfserv_lcmon_switch()
- * right after flipping its own state, so that a single mt_ppm_main() pass
+ * under the same lock as its own state change, so a single mt_ppm_main() pass
  * applies the pin release and the LCM_OFF core limit together. The pin has to be
  * dropped by its owner: a policy applied later in ppm_main_update_limit() can
  * only intersect an overlapping range (MAX of the minima), so LCM_OFF could
@@ -154,6 +155,19 @@ static void ppm_perfserv_lcmon_update_req(void)
 	lcmon_perf_idx = ppm_perfserv_lcmon_req_perf_idx();
 	perfserv_policy.req.perf_idx = MAX(perfserv_user_perf_idx, lcmon_perf_idx);
 	perfserv_policy.is_activated = ppm_perfserv_is_policy_active();
+}
+
+bool ppm_perfserv_lcmon_is_max_boost_active(void)
+{
+	bool active;
+
+	ppm_lock(&perfserv_policy.lock);
+	/* Lower debug indices keep the original performance-request semantics. */
+	active = perfserv_policy.is_enabled && lcmon.enabled && lcmon.lcm_on &&
+		(!lcmon.perf_idx || lcmon.perf_idx == ppm_perfserv_lcmon_max_perf_idx());
+	ppm_unlock(&perfserv_policy.lock);
+
+	return active;
 }
 
 void ppm_perfserv_lcmon_switch(bool lcm_on)

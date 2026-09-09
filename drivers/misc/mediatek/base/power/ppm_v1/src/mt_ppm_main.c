@@ -698,7 +698,7 @@ static void ppm_main_update_limit(struct ppm_policy_data *p,
 	FUNC_EXIT(FUNC_LV_MAIN);
 }
 
-static void ppm_main_calc_new_limit(bool lcmoff_single_core)
+static void ppm_main_calc_new_limit(enum ppm_display_policy display_policy)
 {
 	struct ppm_policy_data *pos;
 	int i, active_cnt = 0;
@@ -744,8 +744,44 @@ static void ppm_main_calc_new_limit(bool lcmoff_single_core)
 	}
 #endif
 
-	/* Apply the panel-off core limit after every performance/user policy. */
-	if (lcmoff_single_core) {
+	/* PTPOD may have activated after the state-decision pass. */
+	if (is_ptp_activate)
+		display_policy = PPM_DISPLAY_POLICY_NONE;
+
+	/* Ordinary clients cannot lower the selected screen-on maximum. */
+	if (display_policy == PPM_DISPLAY_POLICY_ON) {
+		for (i = 0; i < c_req->cluster_num; i++) {
+			int cores = get_cluster_max_cpu_core(i);
+			int freq_idx = get_cluster_max_cpufreq_idx(i);
+
+			c_req->cpu_limit[i].min_cpu_core = cores;
+			c_req->cpu_limit[i].max_cpu_core = cores;
+			c_req->cpu_limit[i].min_cpufreq_idx = freq_idx;
+			c_req->cpu_limit[i].max_cpufreq_idx = freq_idx;
+			c_req->cpu_limit[i].has_advise_core = false;
+			c_req->cpu_limit[i].advise_cpu_core = -1;
+			c_req->cpu_limit[i].has_advise_freq = false;
+			c_req->cpu_limit[i].advise_cpufreq_idx = -1;
+		}
+
+		/*
+		 * Retain DLPT, battery-current and boot thermal budget limits.
+		 * The separate final 5A check below also remains authoritative.
+		 */
+		list_for_each_entry(pos, &ppm_main_info.policy_list, link) {
+			if (pos->priority != PPM_POLICY_PRIO_POWER_BUDGET_BASE)
+				continue;
+
+			ppm_lock(&pos->lock);
+			if (pos->is_enabled && pos->is_activated) {
+				for_each_ppm_clusters(i)
+					ppm_main_update_limit(pos,
+						&c_req->cpu_limit[i], &pos->req.limit[i]);
+			}
+			ppm_unlock(&pos->lock);
+		}
+	} else if (display_policy == PPM_DISPLAY_POLICY_OFF) {
+		/* Apply the panel-off core limit after every ordinary client. */
 		for (i = 0; i < c_req->cluster_num; i++) {
 			int cores = (i == PPM_CLUSTER_LL) ? 1 : 0;
 
@@ -850,7 +886,8 @@ static void ppm_main_calc_new_limit(bool lcmoff_single_core)
 	FUNC_EXIT(FUNC_LV_MAIN);
 }
 
-static enum ppm_power_state ppm_main_hica_state_decision(bool *lcmoff_single_core)
+static enum ppm_power_state ppm_main_hica_state_decision(
+						enum ppm_display_policy *display_policy)
 {
 	enum ppm_power_state cur_hica_state = ppm_hica_get_cur_state();
 	enum ppm_power_state final_state;
@@ -867,7 +904,7 @@ static enum ppm_power_state ppm_main_hica_state_decision(bool *lcmoff_single_cor
 
 #ifdef PPM_IC_SEGMENT_CHECK
 	if (ppm_main_info.fix_state_by_segment != PPM_POWER_STATE_NONE) {
-		*lcmoff_single_core = false;
+		*display_policy = PPM_DISPLAY_POLICY_NONE;
 		final_state = ppm_main_info.fix_state_by_segment;
 		goto skip_pwr_check;
 	}
@@ -889,7 +926,7 @@ static enum ppm_power_state ppm_main_hica_state_decision(bool *lcmoff_single_cor
 			case PPM_POLICY_PTPOD:
 				/* skip power budget related policy check if PTPOD policy is activated */
 				if (pos->get_power_state_cb) {
-					*lcmoff_single_core = false;
+					*display_policy = PPM_DISPLAY_POLICY_NONE;
 					final_state = pos->get_power_state_cb(cur_hica_state);
 					ppm_unlock(&pos->lock);
 					goto skip_pwr_check;
@@ -923,8 +960,10 @@ static enum ppm_power_state ppm_main_hica_state_decision(bool *lcmoff_single_cor
 	}
 
 	/* Keep state, root cluster and the final core request consistent. */
-	if (*lcmoff_single_core)
+	if (*display_policy == PPM_DISPLAY_POLICY_OFF)
 		final_state = PPM_POWER_STATE_LL_ONLY;
+	else if (*display_policy == PPM_DISPLAY_POLICY_ON)
+		final_state = PPM_POWER_STATE_4LL_L;
 
 	ppm_ver("@%s: final state (before) = %s, min_power_budget = %d\n",
 		__func__, ppm_get_power_state_name(final_state), ppm_main_info.min_power_budget);
@@ -963,7 +1002,7 @@ int mt_ppm_main(void)
 	enum ppm_power_state prev_state;
 	enum ppm_power_state next_state;
 	unsigned int policy_mask = 0;
-	bool lcmoff_single_core = false;
+	enum ppm_display_policy display_policy = PPM_DISPLAY_POLICY_NONE;
 	int i, notify_hps_first = 0;
 	ktime_t now;
 	unsigned long long delta;
@@ -984,11 +1023,11 @@ int mt_ppm_main(void)
 
 #if defined(CONFIG_MTK_PPM_LCMON_BOOST) && defined(CONFIG_ARCH_MT6755)
 	/* One panel-state snapshot governs both state and core limits this pass. */
-	lcmoff_single_core = ppm_lcmoff_is_policy_activated();
+	display_policy = ppm_lcmoff_get_display_policy();
 #endif
 
 	/* select new state */
-	next_state = ppm_main_hica_state_decision(&lcmoff_single_core);
+	next_state = ppm_main_hica_state_decision(&display_policy);
 	ppm_main_info.cur_power_state = next_state;
 
 #ifdef CONFIG_MTK_RAM_CONSOLE
@@ -1050,7 +1089,7 @@ int mt_ppm_main(void)
 #endif
 
 	/* calculate final limit and fill-in client request structure */
-	ppm_main_calc_new_limit(lcmoff_single_core);
+	ppm_main_calc_new_limit(display_policy);
 
 #ifdef CONFIG_MTK_RAM_CONSOLE
 	aee_rr_rec_ppm_step(4);

@@ -47,8 +47,9 @@ CONFIG_MTK_LENS_BU6424AF_SUPPORT=y
 CONFIG_K50SV1_STOCK_SENSOR_LIST=y
 
 # Owner policy: screen on -> all cores at maximum; normal MT6755 screen off
-# -> CPU0 only. PPM owns the requests and final screen-off core limit, with
-# panel edges from mt_ppm_policy_lcm_off.c; no userspace perf daemon is needed.
+# -> CPU0 only. PPM overrides ordinary clients with this panel policy;
+# power budgets, 5A, calibration and suspend retain their existing limits.
+# Panel edges come from mt_ppm_policy_lcm_off.c; no perf daemon is needed.
 CONFIG_MTK_PPM_LCMON_BOOST=y
 
 # F2FS is built in for /data and recovery, with SELinux labels (E-185/E-186).

@@ -392,13 +392,22 @@ extern enum ppm_power_state ppm_hica_get_cur_state(void);
 extern void ppm_hica_fix_root_cluster_changed(int cluster_id);
 
 /* lcmoff */
+enum ppm_display_policy {
+	PPM_DISPLAY_POLICY_NONE,
+	PPM_DISPLAY_POLICY_ON,
+	PPM_DISPLAY_POLICY_OFF,
+};
+
 extern bool ppm_lcmoff_is_policy_activated(void);
+extern enum ppm_display_policy ppm_lcmoff_get_display_policy(void);
 
 /* perfserv: LCM-on performance pin, driven from the lcmoff FB notifier */
 #ifdef CONFIG_MTK_PPM_LCMON_BOOST
 extern void ppm_perfserv_lcmon_switch(bool lcm_on);
+extern bool ppm_perfserv_lcmon_is_max_boost_active(void);
 #else
 static inline void ppm_perfserv_lcmon_switch(bool lcm_on) { }
+static inline bool ppm_perfserv_lcmon_is_max_boost_active(void) { return false; }
 #endif
 
 /* Power state/Power table */

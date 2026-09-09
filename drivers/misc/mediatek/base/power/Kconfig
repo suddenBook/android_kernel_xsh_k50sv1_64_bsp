@@ -42,14 +42,16 @@ config MTK_PPM_LCMON_BOOST
 	  the panel is unblanked and drop it on FB_BLANK_POWERDOWN, from the
 	  same FB notifier the LCM_OFF policy uses.  The default index is the
 	  platform maximum (what /proc/ppm/policy/perfserv_max_perf_idx
-	  reports), which holds every core of both clusters online at its top
-	  OPP while the screen is on. On MT6755, normal screen-off operation
-	  is limited to one little core; PTPOD calibration and fixed chip
-	  segment states retain their existing requirements. Other platforms
-	  retain their normal LCM_OFF/HICA behavior. A userspace write to
+	  reports). On MT6755, that maximum request also overrides ordinary
+	  clients' core/frequency limits while the screen is on; normal
+	  screen-off operation is limited to one little core. Power budgets,
+	  the final 5A limit, PTPOD calibration, fixed chip segments and suspend
+	  retain their existing requirements. Other platforms retain their
+	  normal LCM_OFF/HICA behavior. A userspace write to
 	  perfserv_perf_idx composes with it (the larger request wins).
 	  Tunables: /proc/ppm/policy/perfserv_lcmon_boost (1/0) and
-	  perfserv_lcmon_perf_idx (0 = platform maximum).
+	  perfserv_lcmon_perf_idx (0 = platform maximum). Disabling the boost
+	  or selecting a lower index restores ordinary screen-on arbitration.
 	  Board policy for k50sv1_64_bsp.  Say N unless you want a
 	  screen-on performance pin.
 

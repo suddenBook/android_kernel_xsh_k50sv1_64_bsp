@@ -49,6 +49,21 @@ bool ppm_lcmoff_is_policy_activated(void)
 	return is_activate;
 }
 
+enum ppm_display_policy ppm_lcmoff_get_display_policy(void)
+{
+	enum ppm_display_policy policy = PPM_DISPLAY_POLICY_NONE;
+
+	/* Panel edges take these locks in the same LCM_OFF -> PERF_SERV order. */
+	ppm_lock(&lcmoff_policy.lock);
+	if (lcmoff_policy.is_activated)
+		policy = PPM_DISPLAY_POLICY_OFF;
+	else if (ppm_perfserv_lcmon_is_max_boost_active())
+		policy = PPM_DISPLAY_POLICY_ON;
+	ppm_unlock(&lcmoff_policy.lock);
+
+	return policy;
+}
+
 static enum ppm_power_state ppm_lcmoff_get_power_state_cb(enum ppm_power_state cur_state)
 {
 	return cur_state;
@@ -124,6 +139,12 @@ static void ppm_lcmoff_switch(int onoff)
 			lcmoff_policy.is_activated = true;
 	}
 
+	/*
+	 * Publish both panel requesters atomically to the display-policy reader.
+	 * The PERF_SERV callback only queues work; hotplug stays outside this lock
+	 * and the caller's console_lock.
+	 */
+	ppm_perfserv_lcmon_switch(!!onoff);
 	ppm_unlock(&lcmoff_policy.lock);
 
 	FUNC_EXIT(FUNC_LV_POLICY);
@@ -143,23 +164,15 @@ static int ppm_lcmoff_fb_notifier_callback(struct notifier_block *self, unsigned
 	blank = *(int *)evdata->data;
 	ppm_ver("@%s: blank = %d, event = %lu\n", __func__, blank, event);
 
-	/*
-	 * The PERF_SERV LCM-on pin (CONFIG_MTK_PPM_LCMON_BOOST) takes the same
-	 * edge from here, after this policy has flipped, so that the PPM pass
-	 * it schedules applies both changes at once: ppm_lcmoff_switch() itself
-	 * only sets is_activated and leaves the re-evaluation to the next HPS
-	 * tick.  A no-op when the option is off.
-	 */
+	/* ppm_lcmoff_switch updates both requesters before deferred evaluation. */
 	switch (blank) {
 	/* LCM ON */
 	case FB_BLANK_UNBLANK:
 		ppm_lcmoff_switch(1);
-		ppm_perfserv_lcmon_switch(true);
 		break;
 	/* LCM OFF */
 	case FB_BLANK_POWERDOWN:
 		ppm_lcmoff_switch(0);
-		ppm_perfserv_lcmon_switch(false);
 		break;
 	default:
 		break;
