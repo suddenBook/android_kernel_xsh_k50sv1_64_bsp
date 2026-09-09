@@ -7,7 +7,7 @@ with adaptations for this board's fitted hardware and Android userspace.
 
 | Item | Configuration |
 | --- | --- |
-| Linux version | 3.18.119 |
+| Linux version | 3.18.140 |
 | MediaTek BSP platform | MT6755 (`CONFIG_ARCH_MT6755`, `CONFIG_MTK_PLATFORM="mt6755"`) |
 | Board hardware | MT6750 E2, project `k50sv1_64_bsp` |
 | Kernel architecture | ARM64, with 32-bit ARM userspace compatibility (`CONFIG_COMPAT`) |
@@ -58,9 +58,14 @@ five connectivity modules together; validate their symbol versions before
 packaging. The selected 1.807 GHz, startup PPM-thermal removal and screen-on/off
 CPU policy are owner requirements and must survive stable-kernel upgrades.
 
-The canonical tree remains 3.18.119. A separately reviewed 3.18.120 candidate
-and its build/ABI evidence are in `bringup/k50sv1-bringup/notes/kernel-upgrade.md`;
-that candidate has not yet been adopted or boot-tested.
+The canonical tree includes the individually reviewed 3.18.120–3.18.140
+increments, the screen-off single-core correction, and the official mainline
+VTI cleanup supplement. Both diagnostic products at source `12a5158f` passed
+build, five-module ABI and actual boot/recovery/vendor image checks. The
+owner's sibling workspace records the per-version handset results in
+`bringup/k50sv1-bringup/evidence/kernel-stable-20260909/` and the source decisions
+in `bringup/k50sv1-bringup/notes/kernel-upgrade.md`. Validation targets this
+ARM64 product; it does not certify disabled drivers or other architectures.
 
 ## First release source
 
