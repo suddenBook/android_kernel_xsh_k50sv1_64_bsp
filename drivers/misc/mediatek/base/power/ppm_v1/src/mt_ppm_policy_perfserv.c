@@ -52,8 +52,11 @@ struct ppm_perfserv_data {
  * LCM-on performance pin (k50sv1_64_bsp board policy).
  *
  * The owner's requirement for this handset is the two extremes: panel lit ->
- * every core of both clusters online at its top OPP; panel dark -> PPM idles
- * the SoC as it normally would.  It is implemented as a second requester of
+ * every core of both clusters online at its top OPP; panel dark -> one little
+ * core during normal MT6755 operation. The screen-off core limit is applied
+ * after policy arbitration in mt_ppm_main.c; PTPOD calibration and fixed chip
+ * segments retain their existing requirements. The screen-on request is
+ * implemented as a second requester of
  * this policy's perf_idx: while the LCM is on, PERF_SERV asks for
  * lcmon.perf_idx (default: the platform maximum, power_tbl[0].perf_idx, which
  * is what /proc/ppm/policy/perfserv_max_perf_idx reports -- 5616 on the
@@ -68,7 +71,7 @@ struct ppm_perfserv_data {
  * The screen edge is FB_EVENT_BLANK, delivered by the LCM_OFF policy's FB
  * notifier (mt_ppm_policy_lcm_off.c), which calls ppm_perfserv_lcmon_switch()
  * right after flipping its own state, so that a single mt_ppm_main() pass
- * applies the pin release and the LCM_OFF floor together.  The pin has to be
+ * applies the pin release and the LCM_OFF core limit together. The pin has to be
  * dropped by its owner: a policy applied later in ppm_main_update_limit() can
  * only intersect an overlapping range (MAX of the minima), so LCM_OFF could
  * never lower a minimum this policy raised.  The panel is already lit when
@@ -492,4 +495,3 @@ static void __exit ppm_perfserv_policy_exit(void)
 
 module_init(ppm_perfserv_policy_init);
 module_exit(ppm_perfserv_policy_exit);
-

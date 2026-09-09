@@ -46,9 +46,9 @@ CONFIG_MTK_LENS_BU6424AF_SUPPORT=y
 # CONFIG_GATOR is not set
 CONFIG_K50SV1_STOCK_SENSOR_LIST=y
 
-# Owner policy: screen on -> all cores at maximum, screen off -> idle.  Lives in
-# PPM (mt_ppm_policy_perfserv.c, edge from mt_ppm_policy_lcm_off.c) instead of
-# the k50sv1_perfd daemon it replaces; E-032/E-033/E-167.
+# Owner policy: screen on -> all cores at maximum; normal MT6755 screen off
+# -> CPU0 only. PPM owns the requests and final screen-off core limit, with
+# panel edges from mt_ppm_policy_lcm_off.c; no userspace perf daemon is needed.
 CONFIG_MTK_PPM_LCMON_BOOST=y
 
 # F2FS is built in for /data and recovery, with SELinux labels (E-185/E-186).
