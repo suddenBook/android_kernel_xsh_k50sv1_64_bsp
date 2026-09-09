@@ -19,8 +19,3 @@ obj-y += wd_api.o
 
 # for WDT Test
 # obj-y += wdt_test.o
-
-# Adb reboot ftm
-ifneq (,$(filter $(TARGET_BUILD_VARIANT),userdebug))
-ccflags-y += -DADBREBOOT_FTM_USEIN_USERDEBUG
-endif

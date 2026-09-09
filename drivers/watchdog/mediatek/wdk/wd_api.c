@@ -606,28 +606,8 @@ void arch_reset(char mode, const char *cmd)
 	} else if (cmd && !strcmp(cmd, "rpmbpk")) {
 		mtk_wd_SetNonResetReg2(0x0, 1);
 #endif
-	}
-#ifdef ADBREBOOT_FTM_USEIN_USERDEBUG
-	else if(cmd && !strcmp(cmd, "ftm"))      //FTM
-	{
-		rtc_mark_ftm();
-	}
-#endif
-	else if(cmd && !strcmp(cmd, "normal"))      //NORMAL mode
-	{
-		rtc_mark_normal();
-	}
-	else if(cmd && !strcmp(cmd, "meta")) 	    //META TOOL
-	{
-		rtc_mark_meta();
-	}
-	else if(cmd && !strcmp(cmd, "preloader"))  //Preloader
-	{
-		rtc_mark_preloader();
-	}
-        else if(cmd && !strcmp(cmd, "memory_test")) {     //RAMTEST
-        rtc_mark_ramtest();
 	} else {
+		/* Unknown modes use normal reboot and bypass charger-only boot. */
 		reboot = 1;
 	}
 
