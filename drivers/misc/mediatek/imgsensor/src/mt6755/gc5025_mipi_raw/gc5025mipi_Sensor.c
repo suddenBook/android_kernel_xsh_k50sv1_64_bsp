@@ -1013,7 +1013,12 @@ static kal_uint16 gain2reg(const kal_uint16 gain)
 *************************************************************************/
 
 #define ANALOG_GAIN_1 64   // 1.00x
-#define ANALOG_GAIN_2 92   // 1.445x
+#define ANALOG_GAIN_2 92   // 1.4375x
+
+/* Digital gain is b1[3:0]:b2[7:2] in units of 1/64. Saturate before
+ * conversion: b1 discards bit 4, so a request of 24x would wrap to <1x.
+ */
+#define GC5025_MAX_GAIN ((0x400 * ANALOG_GAIN_2 / ANALOG_GAIN_1) - 1)
 
 static kal_uint16 set_gain(kal_uint16 gain)
 {
@@ -1021,8 +1026,10 @@ static kal_uint16 set_gain(kal_uint16 gain)
 
 	iReg = gain;
 
-	if(iReg < 0x40)
-		iReg = 0x40;
+	if (iReg < ANALOG_GAIN_1)
+		iReg = ANALOG_GAIN_1;
+	else if (iReg > GC5025_MAX_GAIN)
+		iReg = GC5025_MAX_GAIN;
 
 	if((ANALOG_GAIN_1<= iReg)&&(iReg < ANALOG_GAIN_2))
 	{
@@ -1043,7 +1050,7 @@ static kal_uint16 set_gain(kal_uint16 gain)
 		LOG_INF("GC5025MIPI analogic gain 1.4x, GC5025MIPI add pregain = %d\n",temp);
 	}
 
-	return gain;
+	return iReg;
 
 }    /*    set_gain  */
 
