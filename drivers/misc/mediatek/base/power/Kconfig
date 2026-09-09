@@ -43,8 +43,10 @@ config MTK_PPM_LCMON_BOOST
 	  same FB notifier the LCM_OFF policy uses.  The default index is the
 	  platform maximum (what /proc/ppm/policy/perfserv_max_perf_idx
 	  reports), which holds every core of both clusters online at its top
-	  OPP while the screen is on; with the screen off LCM_OFF and HICA
-	  idle the SoC as they normally do.  A userspace write to
+	  OPP while the screen is on. On MT6755, normal screen-off operation
+	  is limited to one little core; PTPOD calibration and fixed chip
+	  segment states retain their existing requirements. Other platforms
+	  retain their normal LCM_OFF/HICA behavior. A userspace write to
 	  perfserv_perf_idx composes with it (the larger request wins).
 	  Tunables: /proc/ppm/policy/perfserv_lcmon_boost (1/0) and
 	  perfserv_lcmon_perf_idx (0 = platform maximum).
