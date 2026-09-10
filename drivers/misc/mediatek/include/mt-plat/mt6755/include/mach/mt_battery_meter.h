@@ -42,29 +42,33 @@
 /*
  * Qmax for battery, in mAh.
  *
- * k50sv1: the installed cell is printed 3.8 V / 12.16 Wh, i.e. 3200 mAh
- * nominal (teardown, E-176). The values below are the MediaTek MT6755
- * reference table scaled by 3200/2709 so that Q_MAX_POS_25 -- the 25 degC,
- * low-current point, which is what a cell's printed rating means and what
- * battery_meter exports as POWER_SUPPLY_PROP_CHARGE_FULL -- is exactly 3200.
- * The temperature and high-current shape is kept from the reference table
- * because this cell has not been characterised; only its full scale is known.
+ * k50sv1: the fitted cell is a replacement, printed 3.8 V / 14.44 Wh, i.e.
+ * 3800 mAh nominal (owner teardown, 2026-09-10). This supersedes E-176's
+ * 3.8 V / 12.16 Wh = 3200 mAh, which described the cell shipped with the
+ * handset, and E-104's 4000 mAh label reading. The values below are the
+ * MediaTek MT6755 reference table scaled by 3800/2709 so that Q_MAX_POS_25
+ * -- the 25 degC, low-current point, which is what a cell's printed rating
+ * means and what battery_meter exports as POWER_SUPPLY_PROP_CHARGE_FULL --
+ * is exactly 3800. The temperature and high-current shape is kept from the
+ * reference table because this cell has not been characterised; only its
+ * full scale is known.
  *
- * The donor table's unscaled 2709 was reaching userspace as charge_full, so
- * BatteryStats learned a 2709 mAh pack and every mAh it attributed was 18%
- * low. The OCV/ZCV curves in mt_battery_meter_table.h are still the donor's;
+ * The donor table's unscaled 2709 reaching userspace as charge_full would
+ * describe a pack 29% smaller than this one (2709/3800), scaling down every
+ * mAh BatteryStats attributes by the same factor. The OCV/ZCV curves in
+ * mt_battery_meter_table.h are still the donor's;
  * with CONFIG_MTK_HAFG_20 they only seed and re-anchor a coulomb-counted SOC,
  * so the full scale is the term that matters and this is the one we know.
  */
-#define Q_MAX_POS_50	3240
-#define Q_MAX_POS_25 3200
-#define Q_MAX_POS_0 1380
-#define Q_MAX_NEG_10 900
+#define Q_MAX_POS_50	3848
+#define Q_MAX_POS_25 3800
+#define Q_MAX_POS_0 1639
+#define Q_MAX_NEG_10 1069
 
-#define Q_MAX_POS_50_H_CURRENT	3175
-#define Q_MAX_POS_25_H_CURRENT 3136
-#define Q_MAX_POS_0_H_CURRENT 1353
-#define Q_MAX_NEG_10_H_CURRENT 882
+#define Q_MAX_POS_50_H_CURRENT	3770
+#define Q_MAX_POS_25_H_CURRENT 3724
+#define Q_MAX_POS_0_H_CURRENT 1607
+#define Q_MAX_NEG_10_H_CURRENT 1047
 
 
 /* Discharge Percentage */
