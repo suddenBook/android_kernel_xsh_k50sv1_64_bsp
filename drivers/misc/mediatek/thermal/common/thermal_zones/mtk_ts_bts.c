@@ -516,6 +516,16 @@ static __s16 mtkts_bts_thermistor_conver_temp(__s32 Res)
 	return TAP_Value;
 }
 
+/*
+ * Temperature reported when the BTS thermistor reads outside its lookup
+ * table, i.e. the sensor line is shorted or the part is missing.
+ * See mtk_ts_bts_volt_to_temp().
+ */
+#define MTKTS_BTS_SENSOR_FAULT_TEMP	25
+
+/* Latches the clamp so it is logged on entry and exit, not every poll. */
+static bool mtkts_bts_sensor_faulted;
+
 /* convert ADC_AP_temp_volt to register */
 /*Volt to Temp formula same with 6589*/
 static __s16 mtk_ts_bts_volt_to_temp(__u32 dwVolt)
@@ -541,6 +551,29 @@ static __s16 mtk_ts_bts_volt_to_temp(__u32 dwVolt)
 	/* ------------------------------------------------------------------ */
 
 	g_AP_TemperatureR = TRes;
+
+	/*
+	 * k50sv1_64_bsp: a 100K NTC cannot legitimately measure below the
+	 * bottom of its lookup table. Such a reading means the sensor line
+	 * is shorted or the thermistor is absent, and the table would clamp
+	 * it to 125C -- pinning the zone above its critical trip and holding
+	 * the SoC at its lowest operating point forever. Report a nominal
+	 * value instead. This self-disables once the sensor reads sanely.
+	 */
+	if (TRes <= BTS_Temperature_Table[(sizeof(BTS_Temperature_Table) /
+					   sizeof(BTS_TEMPERATURE)) - 1].TemperatureR) {
+		if (!mtkts_bts_sensor_faulted) {
+			mtkts_bts_sensor_faulted = true;
+			pr_err("mtkts_bts: NTC out of range (R=%d ohm, %u mV); reporting %d C until it reads sane\n",
+			       TRes, dwVolt, MTKTS_BTS_SENSOR_FAULT_TEMP);
+		}
+		return MTKTS_BTS_SENSOR_FAULT_TEMP;
+	}
+
+	if (mtkts_bts_sensor_faulted) {
+		mtkts_bts_sensor_faulted = false;
+		pr_err("mtkts_bts: NTC back in range (R=%d ohm, %u mV)\n", TRes, dwVolt);
+	}
 
 	/* convert register to temperature */
 	BTS_TMP = mtkts_bts_thermistor_conver_temp(TRes);
