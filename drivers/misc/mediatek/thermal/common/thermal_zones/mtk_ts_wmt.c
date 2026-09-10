@@ -724,8 +724,13 @@ static int wmt_cl_set_cur_state(struct thermal_cooling_device *cool_dev, unsigne
 	if (cl_dev_state == 1) {
 		wmt_tm_printk("wmt_cl_set_cur_state = 1\n");
 		/* the temperature is over than the critical, system reboot. */
-/* BUG(); */
-		BUG();	/* To trigger data abort to reset the system for thermal protection. */
+		/*
+		 * k50sv1_64_bsp: emergency thermal reset disabled. The board
+		 * AP/BTS NTC was damaged during a heatsink swap and reads a
+		 * stuck 125C, which reset the system on every boot. Normal
+		 * throttling is unaffected; only the reset is suppressed.
+		 */
+		pr_err("thermal: %s: emergency reset suppressed\n", __func__);
 	}
 
 	return 0;
