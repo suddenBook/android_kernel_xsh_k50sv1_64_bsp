@@ -80,6 +80,17 @@ mt_cpufreq_thermal_protect(unsigned int limited_power)
 /*=============================================================*/
 static void set_static_cpu_power_limit(unsigned int limit)
 {
+	/*
+	 * k50sv1_64_bsp: thermal power budgeting disabled by owner request --
+	 * this handset runs at full CPU power whenever it is awake. 0 maps to
+	 * 0x7FFFFFFF below, i.e. no limit, so the cooler still registers and
+	 * reports state but never constrains the budget. The SoC's hardware
+	 * thermal protection (RGU direct reset at the tzcpu trip_0 threshold,
+	 * armed by tscpu_config_all_tc_hw_protect) is independent of this and
+	 * remains in effect.
+	 */
+	limit = 0;
+
 	prv_stc_cpu_pwr_lim = static_cpu_power_limit;
 	static_cpu_power_limit = (limit != 0) ? limit : 0x7FFFFFFF;
 
@@ -100,6 +111,17 @@ static void set_static_cpu_power_limit(unsigned int limit)
 
 static void set_static_gpu_power_limit(unsigned int limit)
 {
+	/*
+	 * k50sv1_64_bsp: thermal power budgeting disabled by owner request --
+	 * this handset runs at full GPU power whenever it is awake. 0 maps to
+	 * 0x7FFFFFFF below, i.e. no limit, so the cooler still registers and
+	 * reports state but never constrains the budget. The SoC's hardware
+	 * thermal protection (RGU direct reset at the tzcpu trip_0 threshold,
+	 * armed by tscpu_config_all_tc_hw_protect) is independent of this and
+	 * remains in effect.
+	 */
+	limit = 0;
+
 	prv_stc_gpu_pwr_lim = static_gpu_power_limit;
 	static_gpu_power_limit = (limit != 0) ? limit : 0x7FFFFFFF;
 
