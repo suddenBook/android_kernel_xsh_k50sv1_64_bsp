@@ -2140,9 +2140,9 @@ void mt_battery_GetBatteryData(void)
 	BMT_status.temperatureR = temperatureR;
 	BMT_status.ZCV = ZCV;
 	BMT_status.IBattery = battery_meter_get_battery_current();
-	BMT_status.CURRENT_NOW = BMT_status.IBattery;
 	current_sign = battery_meter_get_battery_current_sign();
 	BMT_status.IBattery *= (current_sign ? 1 : (-1));
+	BMT_status.CURRENT_NOW = BMT_status.IBattery;
 
 	batteryIndex++;
 	if (batteryIndex >= BATTERY_AVERAGE_SIZE)
