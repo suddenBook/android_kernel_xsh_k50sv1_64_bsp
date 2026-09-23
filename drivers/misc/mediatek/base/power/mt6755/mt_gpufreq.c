@@ -888,8 +888,10 @@ static void mt_gpufreq_set_initial(void)
 #ifdef MT_GPUFREQ_USE_BUCK_MT6353
 	if (segment != 0x82 && segment != 0x86) {
 		/* slow down gpu freq for MT6738 since default freq is 520MHz */
-		if (cur_freq > mt_gpufreqs[g_gpufreq_max_id].gpufreq_khz)
-			mt_gpufreq_clock_switch(mt_gpufreqs[g_gpufreq_max_id].gpufreq_khz);
+		if (cur_freq > mt_gpufreqs[g_gpufreq_max_id].gpufreq_khz) {
+			cur_freq = mt_gpufreqs[g_gpufreq_max_id].gpufreq_khz;
+			mt_gpufreq_clock_switch(cur_freq);
+		}
 
 		/* keep in default freq since Vcore DVFS is not ready yet */
 		for (i = 0; i < mt_gpufreqs_num; i++) {
@@ -2162,6 +2164,7 @@ unsigned int mt_gpufreq_target(unsigned int idx)
 			**********************************************/
 			target_freq = mt_gpufreqs[mt_gpufreq_pbm_limited_index].gpufreq_khz;
 			target_volt = mt_gpufreqs[mt_gpufreq_pbm_limited_index].gpufreq_volt;
+			target_idx = mt_gpufreqs[mt_gpufreq_pbm_limited_index].gpufreq_idx;
 			target_OPPidx = mt_gpufreq_pbm_limited_index;
 			gpufreq_dbg("Limit! Thermal/Power limit gpu frequency %d\n",
 				    mt_gpufreqs[mt_gpufreq_pbm_limited_index].gpufreq_khz);
