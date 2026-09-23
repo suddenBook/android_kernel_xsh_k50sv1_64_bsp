@@ -76,6 +76,15 @@ static const char longname[] = "Gadget Android";
 #define KPOC_USB_FUNC "mtp"
 #define KPOC_USB_VENDOR_ID 0x0E8D
 #define KPOC_USB_PRODUCT_ID 0x2008
+
+static bool kpoc_adb_enabled;
+
+static int __init kpoc_adb_setup(char *str)
+{
+	kpoc_adb_enabled = !strcmp(str, "1");
+	return 1;
+}
+__setup("androidboot.kpoc_adb=", kpoc_adb_setup);
 #endif
 
 #ifdef CONFIG_SND_RAWMIDI
@@ -136,6 +145,9 @@ struct android_dev {
 	struct mutex mutex;
 	bool connected;
 	bool sw_connected;
+#ifdef CONFIG_MTK_KERNEL_POWER_OFF_CHARGING
+	bool kpoc_adb;
+#endif
 	struct work_struct work;
 	char ffs_aliases[256];
 };
@@ -1863,7 +1875,14 @@ functions_store(struct device *pdev, struct device_attribute *attr,
 
 	INIT_LIST_HEAD(&dev->enabled_functions);
 #ifdef CONFIG_MTK_KERNEL_POWER_OFF_CHARGING
-	if (get_boot_mode() == KERNEL_POWER_OFF_CHARGING_BOOT || get_boot_mode() == LOW_POWER_OFF_CHARGING_BOOT) {
+	/*
+	 * Diagnostic boot images may explicitly select ADB without changing
+	 * the charging-only defaults used by production images.
+	 */
+	dev->kpoc_adb = kpoc_adb_enabled && sysfs_streq(buff, "adb");
+	if (!dev->kpoc_adb &&
+	    (get_boot_mode() == KERNEL_POWER_OFF_CHARGING_BOOT ||
+	     get_boot_mode() == LOW_POWER_OFF_CHARGING_BOOT)) {
 		pr_notice("[USB]KPOC, func%s\n", KPOC_USB_FUNC);
 		err = android_enable_function(dev, KPOC_USB_FUNC);
 		if (err)
@@ -1959,8 +1978,9 @@ static ssize_t enable_store(struct device *pdev, struct device_attribute *attr,
 		cdev->desc.idVendor = device_desc.idVendor;
 		cdev->desc.idProduct = device_desc.idProduct;
 #ifdef CONFIG_MTK_KERNEL_POWER_OFF_CHARGING
-		if (get_boot_mode() == KERNEL_POWER_OFF_CHARGING_BOOT
-				|| get_boot_mode() == LOW_POWER_OFF_CHARGING_BOOT) {
+		if (!dev->kpoc_adb &&
+		    (get_boot_mode() == KERNEL_POWER_OFF_CHARGING_BOOT ||
+		     get_boot_mode() == LOW_POWER_OFF_CHARGING_BOOT)) {
 			pr_notice("[USB]KPOC, vid:%d, pid:%d\n", KPOC_USB_VENDOR_ID, KPOC_USB_PRODUCT_ID);
 			cdev->desc.idVendor = cpu_to_le16(KPOC_USB_VENDOR_ID);
 			cdev->desc.idProduct = cpu_to_le16(KPOC_USB_PRODUCT_ID);
