@@ -255,11 +255,16 @@ HPS_WAIT_EVENT:
  */
 int hps_task_start(void)
 {
+	struct task_struct *task;
+
 	if (hps_ctxt.tsk_struct_ptr == NULL) {
 		/*struct sched_param param = {.sched_priority = HPS_TASK_PRIORITY };*/
-		hps_ctxt.tsk_struct_ptr = kthread_create(_hps_task_main, NULL, "hps_main");
-		if (IS_ERR(hps_ctxt.tsk_struct_ptr))
-			return PTR_ERR(hps_ctxt.tsk_struct_ptr);
+		task = kthread_create(_hps_task_main, NULL, "hps_main");
+		if (IS_ERR(task))
+			return PTR_ERR(task);
+
+		/* Timer and idle callbacks must never observe an ERR_PTR. */
+		hps_ctxt.tsk_struct_ptr = task;
 
 	/*	sched_setscheduler_nocheck(hps_ctxt.tsk_struct_ptr, SCHED_FIFO, &param);*/
 		set_user_nice(hps_ctxt.tsk_struct_ptr, HPS_TASK_NORMAL_PRIORITY);
@@ -372,6 +377,12 @@ int hps_core_init(void)
 	r = hps_task_start();
 	if (r) {
 		hps_error("hps_task_start fail(%d)\n", r);
+		if (hps_ctxt.periodical_by == HPS_PERIODICAL_BY_TIMER) {
+			idle_notifier_unregister(&cpu_hotplug_idle_nb);
+			del_timer_sync(&hps_ctxt.tmr_list);
+		} else if (hps_ctxt.periodical_by == HPS_PERIODICAL_BY_HR_TIMER) {
+			hrtimer_cancel(&hps_ctxt.hr_timer);
+		}
 		return r;
 	}
 
