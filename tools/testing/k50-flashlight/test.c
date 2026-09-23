@@ -172,8 +172,7 @@ int main(void)
 	CHECK("release waits for running timeout without deadlock", close_result == 0 && open_result == 0);
 	CHECK("old running timeout cannot disable reopened torch", CHANNELS() == 3 &&
 		!flash_timer.active && !run_work(&flash_timeout_work));
-	constant_flashlight_exit();
-	CHECK("exit releases torch", !flash_in_use && CHANNELS() == 0);
+	CHECK("release after concurrent reopen", CLOSE() == 0 && CHANNELS() == 0);
 
 	reset_trace();
 	g_strobePartId[0][0] = 1;
@@ -228,6 +227,75 @@ int main(void)
 	CHECK("failed shutdown still ends callback lifetime", g_pFlashInitFunc[0][0][0] == NULL);
 	CHECK("reopen recovers failed shutdown", CORE_IOCTL(FLASHLIGHTIOC_X_SET_DRIVER) == 0 &&
 		CHANNELS() == 0 && CORE_IOCTL(FLASH_IOC_UNINIT) == 0);
+
+	/* Exercise the production LED callbacks and completion-status ABI. */
+	char status[PAGE_SIZE];
+	int enabled, available, error;
+	reset_trace();
+	enforce_pbm = true;
+	CHECK("LED registers", constant_flashlight_init() == 0 && led_registered);
+	CHECK("LED advertises binary torch", torch_led.max_brightness == 1);
+	torch_brightness_set(&torch_led, 1);
+	CHECK("write is queued, not a success report", CHANNELS() == 0 && !torch_enabled);
+	CHECK("status waits for queued enable", status_show(NULL, NULL, status) > 0 &&
+		sscanf(status, "%d %d %d", &enabled, &available, &error) == 3 &&
+		enabled == 1 && available == 1 && error == 0 && CHANNELS() == 3 && pbm_on);
+	CHECK("legacy cannot take enabled torch", OPEN() == -EBUSY);
+	torch_brightness_set(&torch_led, 0);
+	CHECK("off status is confirmed", status_show(NULL, NULL, status) > 0 &&
+		!strcmp(status, "0 1 0\n") && CHANNELS() == 0 && !pbm_on);
+	CHECK("legacy can acquire idle torch", OPEN() == 0);
+	torch_brightness_set(&torch_led, 1);
+	CHECK("LED reports legacy conflict", status_show(NULL, NULL, status) > 0 &&
+		torch_result == -EBUSY && !torch_enabled && !torch_requested);
+	CHECK("LED conflict does not release legacy", flash_in_use && CLOSE() == 0);
+	torch_brightness_set(&torch_led, 1);
+	flush_work(&torch_work);
+	CHECK("LED retries after legacy release", CHANNELS() == 3 && torch_enabled);
+	k50_torch_set_low_power(K50_TORCH_LOW_VOLTAGE, true);
+	/* Reproduce an ON overtaking the low-power OFF before work runs. */
+	torch_brightness_set(&torch_led, 1);
+	CHECK("low power wins newer ON", status_show(NULL, NULL, status) > 0 &&
+		CHANNELS() == 0 && !torch_enabled && torch_result == -EPERM && !pbm_on);
+	CHECK("legacy cannot bypass low power", OPEN() == -EPERM);
+	k50_torch_set_low_power(K50_TORCH_LOW_CAPACITY, true);
+	k50_torch_set_low_power(K50_TORCH_LOW_VOLTAGE, false);
+	torch_brightness_set(&torch_led, 1);
+	flush_work(&torch_work);
+	CHECK("separate low-power sources stay latched", torch_result == -EPERM && CHANNELS() == 0);
+	k50_torch_set_low_power(K50_TORCH_LOW_CAPACITY, false);
+	torch_brightness_set(&torch_led, 1);
+	flush_work(&torch_work);
+	CHECK("enable after both sources recover", torch_result == 0 && CHANNELS() == 3);
+	torch_brightness_set(&torch_led, 0);
+	flush_work(&torch_work);
+	fail_at = write_count + 1;
+	write_error = -ENXIO;
+	torch_brightness_set(&torch_led, 1);
+	CHECK("PMIC write rejection is reported", status_show(NULL, NULL, status) > 0 &&
+		torch_result == -ENXIO && !torch_enabled && CHANNELS() == 0 && !pbm_on);
+	read_error = 7;
+	torch_brightness_set(&torch_led, 1);
+	CHECK("failed readback is not success", status_show(NULL, NULL, status) == -EIO &&
+		CHANNELS() == 0 && torch_state_unknown && pbm_on);
+	CHECK("unknown state keeps exclusive ownership", OPEN() == -EBUSY);
+	read_error = 0;
+	CHECK("recovered readback releases conservative budget", status_show(NULL, NULL, status) > 0 &&
+		!torch_state_unknown && !torch_enabled && !pbm_on);
+	torch_brightness_set(&torch_led, 0);
+	CHECK("confirmed OFF clears unknown state", status_show(NULL, NULL, status) > 0 &&
+		!strcmp(status, "0 1 0\n") && !torch_state_unknown && !pbm_on);
+	torch_brightness_set(&torch_led, 1);
+	flush_work(&torch_work);
+	torch_shutdown = true;
+	torch_brightness_set(&torch_led, 0);
+	torch_brightness_set(&torch_led, 1);
+	flush_work(&torch_work);
+	CHECK("shutdown wins newer ON", CHANNELS() == 0 && torch_result == -EPERM);
+	CHECK("shutdown prevents legacy reopen", OPEN() == -EPERM);
+	constant_flashlight_exit();
+	CHECK("exit unregisters and drains LED", !led_registered && !torch_work.pending &&
+		!flash_in_use && CHANNELS() == 0);
 	printf("K50 flashlight: %u/%u passed\n", checks - failures, checks);
 	return failures != 0;
 }

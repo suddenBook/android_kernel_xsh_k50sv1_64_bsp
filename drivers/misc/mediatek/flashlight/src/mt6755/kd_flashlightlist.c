@@ -453,6 +453,8 @@ static int gLowPowerVbat = LOW_BATTERY_LEVEL_0;
 
 static void Lbat_protection_powerlimit_flash(LOW_BATTERY_LEVEL level)
 {
+	k50_torch_set_low_power(K50_TORCH_LOW_VOLTAGE,
+		level != LOW_BATTERY_LEVEL_0);
 	if (level == LOW_BATTERY_LEVEL_0) {
 		gLowPowerVbat = LOW_BATTERY_LEVEL_0;
 	} else if (level == LOW_BATTERY_LEVEL_1) {
@@ -473,6 +475,8 @@ static int gLowPowerPer = BATTERY_PERCENT_LEVEL_0;
 
 static void bat_per_protection_powerlimit_flashlight(BATTERY_PERCENT_LEVEL level)
 {
+	k50_torch_set_low_power(K50_TORCH_LOW_CAPACITY,
+		level != BATTERY_PERCENT_LEVEL_0);
 	if (level == BATTERY_PERCENT_LEVEL_0) {
 		gLowPowerPer = BATTERY_PERCENT_LEVEL_0;
 	} else if (level == BATTERY_PERCENT_LEVEL_1) {

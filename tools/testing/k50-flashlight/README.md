@@ -20,3 +20,8 @@ UndefinedBehaviorSanitizer are enabled.
 These tests verify the driver contract and cancellation ordering. Actual light
 output and camera capture timing still require a device test after booting the
 new kernel.
+
+The LED-class cases cover queued completion, exclusivity with camera ioctls,
+PMIC failures and readback, PBM-before-enable ordering, independent low-battery
+sources, ON overtaking forced OFF, shutdown and teardown. These use the actual
+callbacks and status formatter, with controllable work dispatch and PMIC faults.

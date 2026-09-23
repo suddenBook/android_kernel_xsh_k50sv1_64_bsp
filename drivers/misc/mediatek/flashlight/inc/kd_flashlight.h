@@ -197,4 +197,10 @@ typedef struct {
 	int arg;
 
 } StrobeDrvArg;
+#ifdef __KERNEL__
+/* Independent low-power sources for the standalone LED-class torch. */
+#define K50_TORCH_LOW_VOLTAGE 1U
+#define K50_TORCH_LOW_CAPACITY 2U
+void k50_torch_set_low_power(unsigned int source, bool blocked);
+#endif
 #endif

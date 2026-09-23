@@ -10,6 +10,7 @@
 #include <sys/types.h>
 #include <time.h>
 
+#define __KERNEL__
 #include "kd_flashlight.h"
 #include "mach/mt6353_hw.h"
 
@@ -42,6 +43,7 @@ DEFINE_MUTEX(g_mutex);
 struct file { int unused; };
 static size_t copy_missing;
 static unsigned int pbm_calls;
+static bool pbm_on, enforce_pbm;
 static size_t copy_from_user(void *to, const void *from, size_t size)
 {
 	assert(copy_missing <= size);
@@ -59,6 +61,7 @@ static size_t copy_to_user(void *to, const void *from, size_t size)
 static void kicker_pbm_by_flash(int on)
 {
 	pbm_calls++;
+	pbm_on = on != 0;
 }
 static int strobe_getPartId(int sensor, int strobe)
 {
@@ -172,6 +175,8 @@ static unsigned int pmic_config_interface(unsigned int addr, unsigned int value,
 					  unsigned int mask, unsigned int shift)
 {
 	assert(write_count < ARRAY_SIZE(writes));
+	if (enforce_pbm && addr == PMIC_ISINK_CH0_EN_ADDR && value == 1)
+		assert(pbm_on);
 	assert(!(addr & 1) && addr / 2 < ARRAY_SIZE(pmic_registers));
 	assert(value <= mask && (mask << shift) <= 0xffff);
 	writes[write_count++] = (struct pmic_write){ addr, value, mask, shift };
@@ -179,5 +184,67 @@ static unsigned int pmic_config_interface(unsigned int addr, unsigned int value,
 		return write_error;
 	pmic_registers[addr / 2] &= ~(mask << shift);
 	pmic_registers[addr / 2] |= value << shift;
+	return 0;
+}
+
+#define READ_ONCE(value) (value)
+#define DEFINE_SPINLOCK(name) DEFINE_MUTEX(name)
+#define spin_lock_irqsave(lock, flags) do { (flags) = 0; mutex_lock(lock); } while (0)
+#define spin_unlock_irqrestore(lock, flags) do { (void)(flags); mutex_unlock(lock); } while (0)
+#define __init
+#define module_init(func)
+#define PAGE_SIZE 4096
+#define scnprintf snprintf
+#define NOTIFY_DONE 0
+
+struct device { int unused; };
+struct attribute { int unused; };
+struct device_attribute { struct attribute attr; };
+struct attribute_group { struct attribute **attrs; };
+#define DEVICE_ATTR_RO(name) struct device_attribute dev_attr_##name
+
+enum led_brightness { LED_OFF = 0, LED_FULL = 255 };
+struct led_classdev {
+	const char *name;
+	unsigned int max_brightness;
+	void (*brightness_set)(struct led_classdev *, enum led_brightness);
+	enum led_brightness (*brightness_get)(struct led_classdev *);
+	const struct attribute_group **groups;
+};
+static bool led_registered;
+static int led_classdev_register(struct device *parent, struct led_classdev *led)
+{
+	led_registered = true;
+	return 0;
+}
+static void led_classdev_unregister(struct led_classdev *led)
+{
+	led_registered = false;
+	led->brightness_set(led, LED_OFF);
+}
+struct notifier_block {
+	int (*notifier_call)(struct notifier_block *, unsigned long, void *);
+};
+static int register_reboot_notifier(struct notifier_block *notifier) { return 0; }
+static void unregister_reboot_notifier(struct notifier_block *notifier) { }
+
+static void flush_work(struct work_struct *work)
+{
+	for (;;) {
+		mutex_lock(&work->lock);
+		while (work->running)
+			pthread_cond_wait(&work->changed, &work->lock);
+		bool pending = work->pending;
+		mutex_unlock(&work->lock);
+		if (!pending) return;
+		run_work(work);
+	}
+}
+static int read_error;
+static int pmic_read_interface(unsigned int addr, unsigned int *value,
+			      unsigned int mask, unsigned int shift)
+{
+	if (read_error) return read_error;
+	*value = (pmic_registers[addr / 2] >> shift) & mask;
 	return 0;
 }
