@@ -2045,6 +2045,7 @@ unsigned int mt_gpufreq_target(unsigned int idx)
 {
 	/* unsigned long flags; */
 	unsigned int target_freq, target_volt, target_idx, target_OPPidx;
+	int ret = 0;
 
 	mutex_lock(&mt_gpufreq_lock);
 
@@ -2226,7 +2227,8 @@ unsigned int mt_gpufreq_target(unsigned int idx)
 	 *******************************/
 #ifdef MT_GPUFREQ_USE_BUCK_MT6353
 	if (segment != 0x82 && segment != 0x86) {
-		if (!mt_gpufreq_set_vcore(g_cur_gpu_freq, target_freq, target_OPPidx)) {
+		ret = mt_gpufreq_set_vcore(g_cur_gpu_freq, target_freq, target_OPPidx);
+		if (!ret) {
 			g_cur_gpu_idx = target_idx;
 			g_cur_gpu_OPPidx = target_OPPidx;
 			g_cur_gpu_freq = target_freq;
@@ -2251,7 +2253,7 @@ unsigned int mt_gpufreq_target(unsigned int idx)
 
 	mutex_unlock(&mt_gpufreq_lock);
 
-	return 0;
+	return ret;
 }
 EXPORT_SYMBOL(mt_gpufreq_target);
 
