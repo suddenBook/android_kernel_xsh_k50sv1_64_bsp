@@ -1061,20 +1061,20 @@ unsigned int mt_gpufreq_voltage_enable_set(unsigned int enable)
 				if (cur_volt < mt_gpufreqs[g_cur_gpu_OPPidx].gpufreq_volt) {
 					unsigned int i = 0;
 
-					while (cur_volt != mt_gpufreqs[i].gpufreq_volt && i < mt_gpufreqs_num)
+					while (i < mt_gpufreqs_num && cur_volt != mt_gpufreqs[i].gpufreq_volt)
 						i++;
-					if (cur_volt == mt_gpufreqs[i].gpufreq_volt) {
-						mt_gpufreq_clock_switch(mt_gpufreqs[i].gpufreq_khz);
-						g_cur_gpu_OPPidx = i;
-					}
 
 					if (i == mt_gpufreqs_num) {
 						gpufreq_err("@%s: Volt not found, set to lowest freq!\n",
 								__func__);
-						mt_gpufreq_clock_switch(
-							mt_gpufreqs[mt_gpufreqs_num - 1].gpufreq_khz);
-						g_cur_gpu_OPPidx = mt_gpufreqs_num - 1;
+						i = mt_gpufreqs_num - 1;
 					}
+
+					mt_gpufreq_clock_switch(mt_gpufreqs[i].gpufreq_khz);
+					g_cur_gpu_freq = mt_gpufreqs[i].gpufreq_khz;
+					g_cur_gpu_volt = mt_gpufreqs[i].gpufreq_volt;
+					g_cur_gpu_idx = mt_gpufreqs[i].gpufreq_idx;
+					g_cur_gpu_OPPidx = i;
 				}
 			}
 done:
