@@ -4,6 +4,19 @@ config MTK_DRAMC
 	---help---
 	  This selects the MediaTek(R) DRAMC driver.
 
+config K50SV1_STOCK_DRAM_HPM
+	bool "K50SV1 stock-preloader HPM data rate"
+	depends on MTK_DRAMC && MTK_PLATFORM = "mt6755"
+	default n
+	help
+	  The stock K50SV1 preloader configures HPM DRAM for DDR-1666,
+	  reported as 1664 by this driver's register calculation, while
+	  the SoC segment selects the 1796 rate table. Select the existing
+	  1664 HPM expected rate for this board. The LPM expectation,
+	  measured rate and PLL/voltage programming remain unchanged;
+	  SPM continues to validate the measured rate.
+	  The bandwidth governor also uses this rate to normalize thresholds.
+
 config MTK_DRAMC_PASR
 	bool "Mediatek DRAMC PASR control"
 	default n

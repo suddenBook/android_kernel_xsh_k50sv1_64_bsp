@@ -1111,7 +1111,10 @@ int dram_steps_freq(unsigned int step)
 
 	switch (step) {
 	case 0:
-		freq = freq_high;
+		if (IS_ENABLED(CONFIG_K50SV1_STOCK_DRAM_HPM))
+			freq = (DUAL_FREQ_HIGH_J << 1);
+		else
+			freq = freq_high;
 		break;
 	case 1:
 		freq = freq_low;
