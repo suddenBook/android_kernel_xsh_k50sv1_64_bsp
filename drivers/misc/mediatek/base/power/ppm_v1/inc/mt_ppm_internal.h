@@ -268,6 +268,7 @@ struct ppm_data {
 	struct ppm_cluster_info *cluster_info;
 	struct ppm_client_data client_info[NR_PPM_CLIENTS];
 	struct ppm_client_req client_req;
+	bool client_req_valid;
 	struct ppm_client_req last_req;	/* for debugging purpose */
 	struct list_head policy_list;
 	struct task_struct *ppm_task;

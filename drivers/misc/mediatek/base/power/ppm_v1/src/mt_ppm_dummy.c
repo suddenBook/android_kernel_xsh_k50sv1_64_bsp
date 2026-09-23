@@ -24,6 +24,10 @@ void mt_ppm_register_client(enum ppm_client client, void (*limit)(struct ppm_cli
 {
 }
 
+void mt_ppm_sync_client(enum ppm_client client)
+{
+}
+
 /* DLPT policy */
 void mt_ppm_dlpt_set_limit_by_pbm(unsigned int limited_power)
 {

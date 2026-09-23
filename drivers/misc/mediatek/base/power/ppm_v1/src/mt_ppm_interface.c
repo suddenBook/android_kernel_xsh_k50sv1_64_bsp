@@ -138,6 +138,7 @@ static ssize_t ppm_enabled_proc_write(struct file *file, const char __user *buff
 
 			/* send default limit to client */
 			ppm_main_clear_client_req(c_req);
+			ppm_main_info.client_req_valid = true;
 			for_each_ppm_clients(i) {
 				if (ppm_main_info.client_info[i].limit_cb)
 					ppm_main_info.client_info[i].limit_cb(*c_req);

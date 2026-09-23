@@ -90,6 +90,21 @@ void mt_ppm_register_client(enum ppm_client client, void (*limit)(struct ppm_cli
 	FUNC_EXIT(FUNC_LV_API);
 }
 
+void mt_ppm_sync_client(enum ppm_client client)
+{
+	if ((unsigned int)client >= NR_PPM_CLIENTS)
+		return;
+
+	/*
+	 * The client must be ready for its callback. Match mt_ppm_main()'s lock
+	 * order so a concurrent limit update cannot overtake this replay.
+	 */
+	ppm_lock(&ppm_main_info.lock);
+	if (ppm_main_info.client_req_valid && ppm_main_info.client_info[client].limit_cb)
+		ppm_main_info.client_info[client].limit_cb(ppm_main_info.client_req);
+	ppm_unlock(&ppm_main_info.lock);
+}
+
 met_set_ppm_state_funcMET g_pSet_PPM_State;
 
 void mt_set_ppm_state_registerCB(met_set_ppm_state_funcMET pCB)

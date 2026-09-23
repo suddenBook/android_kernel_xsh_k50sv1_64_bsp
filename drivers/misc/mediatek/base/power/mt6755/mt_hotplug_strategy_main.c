@@ -583,12 +583,17 @@ static int __init hps_init(void)
 		hps_error("pm_notifier_register fail(%d)\n", r);
 
 	r = hps_core_init();
-	if (r)
+	if (r) {
 		hps_error("hps_core_init fail(%d)\n", r);
+		return r;
+	}
 
 	hps_ctxt.init_state = INIT_STATE_DONE;
 
 	is_suspend = 0;
+
+	/* Initial PPM limits can precede HPS callback registration. */
+	mt_ppm_sync_client(PPM_CLIENT_HOTPLUG);
 
 	return r;
 }

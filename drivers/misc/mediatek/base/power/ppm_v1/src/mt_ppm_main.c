@@ -1090,6 +1090,7 @@ int mt_ppm_main(void)
 
 	/* calculate final limit and fill-in client request structure */
 	ppm_main_calc_new_limit(display_policy);
+	ppm_main_info.client_req_valid = true;
 
 #ifdef CONFIG_MTK_RAM_CONSOLE
 	aee_rr_rec_ppm_step(4);
