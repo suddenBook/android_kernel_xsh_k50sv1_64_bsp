@@ -1,7 +1,7 @@
 /*
  * Placeholder imgsensor driver for the k50sv1_64_bsp sensor list.
  *
- * Eight of the ten stock sensor-list entries name sensors that are not
+ * Nine of the ten stock sensor-list entries name sensors that are not
  * fitted.  Their slots must stay in the kernel table so that the camera
  * HAL's index-based search lands on the right driver (see
  * k50_sensorlist.h), but there is nothing to talk to: every operation

@@ -35,6 +35,12 @@ The base configuration preserves the stock kernel configuration, including
 module versioning. The additional fragment selects the fitted board drivers,
 source connectivity modules and built-in F2FS support.
 
+Only the front GC5025 camera remains fitted. The active source fragment builds
+that sensor and disables the removed rear camera's lens driver. The ten-entry
+vendor sensor table is preserved: GC5025 stays at slot 6, while the removed
+IMX145 at slot 1 uses the absent-sensor placeholder. The separate MT6353 rear
+flash driver remains enabled.
+
 ## Build integration
 
 The current Android integration uses the **AArch64 Android GCC 4.9** toolchain
