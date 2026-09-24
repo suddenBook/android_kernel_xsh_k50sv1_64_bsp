@@ -10,6 +10,10 @@ import tempfile
 
 BASE = "drivers/misc/mediatek/base/power/mt6755/"
 CASES = ["retry", "busy", "partial", "other_group", "release", "concurrent", "masked", "autok"]
+GPU_CASES = ["resume_676", "resume_520", "resume_failure_high", "resume_failure_low",
+             "resume_cleanup_error", "resume_unmapped", "target_retry", "target_down",
+             "off_pending"]
+CASES += GPU_CASES
 
 
 def function(source, name):
@@ -27,6 +31,11 @@ def between(source, start, end):
     return source[source.index(start):source.index(end)]
 
 
+def declaration(source, start):
+    pos = source.index(start)
+    return source[pos:source.index("};", pos) + 2] + "\n"
+
+
 def fixture(read):
     manager = read(BASE + "mt_vcorefs_manager.c")
     governor = read(BASE + "mt_vcorefs_governor.c")
@@ -41,8 +50,17 @@ def fixture(read):
         *(["kicker_request_compare"] if "static int kicker_request_compare(" in manager else []),
         "kicker_request_mask", "record_kicker_opp_in_aee",
         "vcorefs_request_dvfs_opp", "vcorefs_autok_lock_dvfs", "vcorefs_autok_set_vcore"))
-    return (PREAMBLE + declarations + BOUNDARY + dispatch + manager_state + manager_code
-            + TESTS)
+    gpu = read(BASE + "mt_gpufreq.c")
+    gpu_definitions = between(gpu, "#define GPUOP(", "#define GPU_DVFS_CTRL_VOLT")
+    gpu_definitions += declaration(read(BASE + "mt_gpufreq.h"), "struct mt_gpufreq_table_info {")
+    for table in ("mt_gpufreq_opp_tbl_e2_0", "mt_gpufreq_opp_tbl_e2_3"):
+        gpu_definitions += declaration(gpu, "static struct mt_gpufreq_table_info " + table)
+    gpu_code = "\n".join(function(gpu, name) for name in (
+        "mt_gpufreq_get_cur_volt", "mt_gpufreq_volt_switch_vcore",
+        "mt_gpufreq_voltage_enable_set", "mt_gpufreq_set_vcore",
+        "mt_gpufreq_keep_max_freq", "mt_gpufreq_target"))
+    return "\n".join((PREAMBLE, declarations, BOUNDARY, dispatch, manager_state, manager_code,
+                      gpu_definitions, GPU_BOUNDARY, gpu_code, GPU_TESTS, TESTS))
 
 
 PREAMBLE = r"""
@@ -92,7 +110,8 @@ static struct governor_profile {
 static struct opp_profile opp_table[] = {
     { VCORE_1_P_00_UV, FDDR_S0_KHZ }, { VCORE_0_P_90_UV, FDDR_S1_KHZ }
 };
-static int applied[2], spm_calls, next_error;
+static int applied[2], spm_calls, next_error, following_error;
+static unsigned int event_sequence, last_spm_event, last_clock_event;
 static int vcorefs_get_curr_vcore(void)
 {
     return applied[0] == OPPI_PERF || applied[1] == OPPI_PERF
@@ -107,7 +126,9 @@ static int spm_apply(int group, int opp)
 {
     int ret = next_error;
     ++spm_calls;
-    next_error = 0;
+    last_spm_event = ++event_sequence;
+    next_error = following_error;
+    following_error = 0;
     if (pause_spm) {
         assert(!pthread_mutex_lock(&gate));
         entered_spm = true;
@@ -139,6 +160,162 @@ static int vcorefs_gpu_get_init_opp(void) { return OPPI_UNREQ; }
 static const char *get_kicker_name(int kicker) { return "test"; }
 """
 
+GPU_BOUNDARY = r"""
+#define MT_GPUFREQ_USE_BUCK_MT6353
+#define DISABLE_PBM_FEATURE
+#define BUG_ON(condition) assert(!(condition))
+#define gpufreq_dbg(...) do { if (0) fprintf(stderr, __VA_ARGS__); } while (0)
+#define gpufreq_info(...) gpufreq_dbg(__VA_ARGS__)
+#define gpufreq_warn(...) gpufreq_dbg(__VA_ARGS__)
+#define gpufreq_err(...) gpufreq_dbg(__VA_ARGS__)
+#define DRV_Reg32(reg) 0
+#define MFG_PWR_STA_MASK (1U << 4)
+#define PMIC_ADDR_VPROC_EN 0
+#define PMIC_ADDR_VPROC_EN_MASK 0
+#define PMIC_ADDR_VPROC_EN_SHIFT 0
+#define PMIC_VOLT_ON_OFF_DELAY_US 400
+#define PMIC_BUCK_VPROC_EN 0
+#define PMIC_DA_QI_VPROC_EN 0
+#define PMIC_HWCID 0
+static pthread_mutex_t mt_gpufreq_lock = PTHREAD_MUTEX_INITIALIZER;
+static bool mt_gpufreq_ready = true, mt_gpufreq_ptpod_disable, mt_gpufreq_keep_volt_enable;
+static bool mt_gpufreq_keep_max_frequency_state, mt_gpufreq_keep_opp_frequency_state;
+static bool mt_gpufreq_fixed_freq_volt_state, mt_gpufreq_opp_max_frequency_state;
+static unsigned int mt_gpufreq_keep_opp_index, mt_gpufreq_fixed_frequency;
+static unsigned int mt_gpufreq_fixed_voltage, mt_gpufreq_opp_max_frequency;
+static unsigned int mt_gpufreq_opp_max_index, mt_gpufreq_ptpod_disable_idx;
+static unsigned int g_limited_max_id, g_gpufreq_max_id;
+static unsigned int segment = 0xc1, mt_gpufreq_dvfs_table_type, fake_segment;
+static bool g_is_rosa;
+static int g_last_gpu_dvs_result;
+static unsigned int mt_gpufreq_volt_enable_state;
+static unsigned int g_cur_gpu_freq, g_cur_gpu_volt, g_cur_gpu_OPPidx, g_cur_gpu_idx;
+static struct mt_gpufreq_table_info *mt_gpufreqs = mt_gpufreq_opp_tbl_e2_0;
+static unsigned int mt_gpufreqs_num = sizeof(mt_gpufreq_opp_tbl_e2_0) / sizeof(*mt_gpufreqs);
+static unsigned int pll_khz, clock_writes, pbm_calls;
+static void (*g_pVoltSampler)(unsigned int);
+static unsigned int _mt_gpufreq_get_cur_volt(void)
+{ return vcorefs_get_curr_vcore() / 10; }
+static unsigned int _mt_gpufreq_get_cur_freq(void) { return pll_khz; }
+static void mt_gpufreq_clock_switch(unsigned int khz)
+{
+    last_clock_event = ++event_sequence;
+    pll_khz = khz;
+    ++clock_writes;
+}
+static void _mt_gpufreq_kick_pbm(int enable) { ++pbm_calls; }
+static void pmic_config_interface(int reg, int value, int mask, int shift) { abort(); }
+static unsigned int pmic_get_register_value(int reg) { abort(); }
+static void udelay(unsigned int us) { abort(); }
+static void mt_gpufreq_set_pmic(unsigned int old_khz, unsigned int khz,
+                                unsigned int old_volt, unsigned int volt) { abort(); }
+"""
+
+GPU_TESTS = r"""
+static void gpu_cache(unsigned int index)
+{
+    g_cur_gpu_OPPidx = index;
+    g_cur_gpu_idx = mt_gpufreqs[index].gpufreq_idx;
+    g_cur_gpu_volt = mt_gpufreqs[index].gpufreq_volt;
+    pll_khz = g_cur_gpu_freq = mt_gpufreqs[index].gpufreq_khz;
+}
+static void check_gpu_cache(unsigned int index)
+{
+    assert(g_cur_gpu_OPPidx == index);
+    assert(g_cur_gpu_idx == mt_gpufreqs[index].gpufreq_idx);
+    assert(g_cur_gpu_volt == mt_gpufreqs[index].gpufreq_volt);
+    assert(g_cur_gpu_freq == mt_gpufreqs[index].gpufreq_khz && pll_khz == g_cur_gpu_freq);
+}
+static void gpu_test(const char *name)
+{
+    unsigned int lowest, retained;
+    if (!strcmp(name, "resume_520")) {
+        mt_gpufreqs = mt_gpufreq_opp_tbl_e2_3;
+        mt_gpufreqs_num = sizeof(mt_gpufreq_opp_tbl_e2_3) / sizeof(*mt_gpufreqs);
+        mt_gpufreq_dvfs_table_type = 1;
+        fake_segment = 2;
+    }
+    lowest = mt_gpufreqs_num - 1;
+    gpu_cache(0);
+    mt_gpufreq_volt_enable_state = 1;
+
+    if (!strcmp(name, "target_retry") || !strcmp(name, "off_pending")) {
+        gpu_cache(lowest);
+        next_error = -1;
+        assert((int)mt_gpufreq_target(0) == -1);
+        check_gpu_cache(lowest);
+        assert(clock_writes == 0 && kicker_table[KIR_GPU] == OPPI_PERF);
+        if (!strcmp(name, "off_pending")) {
+            assert(mt_gpufreq_voltage_enable_set(0) == 0);
+            assert(kicker_table[KIR_GPU] == OPPI_UNREQ && applied[0] == OPPI_LOW_PWR);
+        } else {
+            next_error = -EBUSY;
+            assert((int)mt_gpufreq_target(0) == -EBUSY);
+            check_gpu_cache(lowest);
+            assert(clock_writes == 0 && spm_calls == 2);
+            assert(mt_gpufreq_target(0) == 0);
+            check_gpu_cache(0);
+            assert(applied[0] == OPPI_PERF && clock_writes == 1 && spm_calls == 3);
+            assert(last_spm_event < last_clock_event);
+        }
+        return;
+    }
+
+    assert(vcorefs_request_dvfs_opp(KIR_GPU, OPPI_PERF) == 0);
+    if (!strcmp(name, "target_down")) {
+        next_error = -EBUSY;
+        assert(mt_gpufreq_target(lowest) == 0);
+        check_gpu_cache(lowest);
+        assert(last_clock_event < last_spm_event && applied[0] == OPPI_PERF);
+        assert(mt_gpufreq_voltage_enable_set(0) == 0);
+        assert(applied[0] == OPPI_LOW_PWR);
+        return;
+    }
+
+    retained = pll_khz;
+    assert(mt_gpufreq_voltage_enable_set(0) == 0);
+    assert(kicker_table[KIR_GPU] == OPPI_UNREQ && applied[0] == OPPI_LOW_PWR);
+    assert(pll_khz == retained && clock_writes == 0);
+    if (strcmp(name, "resume_failure_low"))
+        assert(vcorefs_request_dvfs_opp(KIR_OVL, OPPI_PERF) == 0);
+
+    if (!strcmp(name, "resume_676") || !strcmp(name, "resume_520")) {
+        assert(mt_gpufreq_voltage_enable_set(1) == 0);
+        assert(kicker_table[KIR_GPU] == OPPI_PERF);
+        assert(vcorefs_request_dvfs_opp(KIR_OVL, OPPI_UNREQ) == 0);
+        assert(applied[0] == OPPI_PERF && pll_khz == retained);
+        assert(clock_writes == 0);
+        check_gpu_cache(0);
+    } else {
+        int error = -1;
+        if (!strcmp(name, "resume_unmapped")) {
+            mt_gpufreqs[0].gpufreq_khz = 400000;
+            gpu_cache(0);
+            error = 0x7f;
+        } else {
+            next_error = error;
+            if (!strcmp(name, "resume_cleanup_error"))
+                following_error = -EBUSY;
+        }
+        assert((int)mt_gpufreq_voltage_enable_set(1) == error);
+        check_gpu_cache(lowest);
+        assert(clock_writes == 1 && pll_khz == GPU_DVFS_FREQ8);
+        assert(kicker_table[KIR_GPU] == OPPI_UNREQ);
+        assert(g_last_gpu_dvs_result == error);
+        assert(last_clock_event < last_spm_event);
+        assert(pbm_calls > 0 && mt_gpufreq_volt_enable_state == 1);
+        assert(vcorefs_request_dvfs_opp(KIR_OVL, OPPI_UNREQ) == 0);
+        assert(applied[0] == OPPI_LOW_PWR && pll_khz == GPU_DVFS_FREQ8);
+        /* The fallback leaves a truthful cache, so a later target can recover. */
+        if (strcmp(name, "resume_unmapped")) {
+            assert(mt_gpufreq_target(0) == 0);
+            check_gpu_cache(0);
+            assert(applied[0] == OPPI_PERF);
+        }
+    }
+}
+"""
+
 TESTS = r"""
 static void reset(void)
 {
@@ -162,7 +339,10 @@ int main(int argc, char **argv)
     assert(argc == 2);
     alarm(10);
     reset();
-    if (!strcmp(argv[1], "retry") || !strcmp(argv[1], "busy") ||
+    if (!strncmp(argv[1], "resume_", 7) || !strncmp(argv[1], "target_", 7) ||
+        !strcmp(argv[1], "off_pending")) {
+        gpu_test(argv[1]);
+    } else if (!strcmp(argv[1], "retry") || !strcmp(argv[1], "busy") ||
         !strcmp(argv[1], "partial")) {
         int error = !strcmp(argv[1], "retry") ? -1 :
                     !strcmp(argv[1], "busy") ? -EBUSY : -3;

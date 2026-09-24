@@ -1032,9 +1032,8 @@ unsigned int mt_gpufreq_voltage_enable_set(unsigned int enable)
 			goto end;
 
 		if (enable == 0) {
-			/* no need to unreq if current freq is not over GPU_DVFS_FREQ8 */
-			if (mt_gpufreqs[g_cur_gpu_OPPidx].gpufreq_khz > GPU_DVFS_FREQ8)
-				vcorefs_request_dvfs_opp(KIR_GPU, OPPI_UNREQ);
+			/* A failed transition can leave a vote at the lowest GPU OPP. */
+			ret = vcorefs_request_dvfs_opp(KIR_GPU, OPPI_UNREQ);
 		} else {
 			unsigned int cur_volt = _mt_gpufreq_get_cur_volt();
 			int need_kick_pbm = 0;
@@ -1043,14 +1042,13 @@ unsigned int mt_gpufreq_voltage_enable_set(unsigned int enable)
 			if (cur_volt != mt_gpufreqs[g_cur_gpu_OPPidx].gpufreq_volt)
 				need_kick_pbm = 1;
 
-			/* Check need to raise Vcore or not */
-			if (cur_volt >= mt_gpufreqs[g_cur_gpu_OPPidx].gpufreq_volt)
-				goto done;
-
+			/* Reacquire our vote even if another consumer already holds HPM. */
 			ret = mt_gpufreq_volt_switch_vcore(g_cur_gpu_OPPidx);
 
 			if (ret) {
 				unsigned int cur_freq = _mt_gpufreq_get_cur_freq();
+				unsigned int i = mt_gpufreqs_num - 1;
+				int unreq_ret;
 
 				gpufreq_err("@%s: Set Vcore to %dmV failed! ret = %d, cur_freq = %d\n",
 						__func__,
@@ -1059,27 +1057,23 @@ unsigned int mt_gpufreq_voltage_enable_set(unsigned int enable)
 						cur_freq
 				);
 
-				/* Raise Vcore failed, set GPU freq to corresponding LV */
-				if (cur_volt < mt_gpufreqs[g_cur_gpu_OPPidx].gpufreq_volt) {
-					unsigned int i = 0;
+				/*
+				 * Without our HPM vote, another consumer can drop Vcore
+				 * at any time. Lower the PLL before releasing the failed
+				 * request, regardless of the sampled voltage.
+				 */
+				mt_gpufreq_clock_switch(mt_gpufreqs[i].gpufreq_khz);
+				g_cur_gpu_freq = mt_gpufreqs[i].gpufreq_khz;
+				g_cur_gpu_volt = mt_gpufreqs[i].gpufreq_volt;
+				g_cur_gpu_idx = mt_gpufreqs[i].gpufreq_idx;
+				g_cur_gpu_OPPidx = i;
+				need_kick_pbm = 1;
 
-					while (i < mt_gpufreqs_num && cur_volt != mt_gpufreqs[i].gpufreq_volt)
-						i++;
-
-					if (i == mt_gpufreqs_num) {
-						gpufreq_err("@%s: Volt not found, set to lowest freq!\n",
-								__func__);
-						i = mt_gpufreqs_num - 1;
-					}
-
-					mt_gpufreq_clock_switch(mt_gpufreqs[i].gpufreq_khz);
-					g_cur_gpu_freq = mt_gpufreqs[i].gpufreq_khz;
-					g_cur_gpu_volt = mt_gpufreqs[i].gpufreq_volt;
-					g_cur_gpu_idx = mt_gpufreqs[i].gpufreq_idx;
-					g_cur_gpu_OPPidx = i;
-				}
+				unreq_ret = vcorefs_request_dvfs_opp(KIR_GPU, OPPI_UNREQ);
+				if (unreq_ret)
+					gpufreq_warn("@%s: Release failed Vcore request: %d\n",
+						     __func__, unreq_ret);
 			}
-done:
 			if (need_kick_pbm)
 				_mt_gpufreq_kick_pbm(1);
 		}
