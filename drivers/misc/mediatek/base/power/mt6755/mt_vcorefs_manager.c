@@ -145,23 +145,6 @@ static int _get_dvfs_opp(int kicker, struct vcorefs_profile *pwrctrl, enum dvfs_
 	return opp;
 }
 
-static int kicker_request_compare(enum dvfs_kicker kicker, enum dvfs_opp opp)
-{
-	/* compare kicker table opp with request opp (except SYSFS) */
-	if (opp == kicker_table[kicker] && kicker != KIR_SYSFS) {
-		/* try again since previous change is partial success */
-		if (vcorefs_curr_opp == vcorefs_prev_opp) {
-			vcorefs_debug_mask(LAST_KICKER, "opp no change, kr_tb: %d, kr: %d, opp: %d\n",
-				    kicker_table[kicker], kicker, opp);
-			return -1;
-		}
-	}
-
-	kicker_table[kicker] = opp;
-
-	return 0;
-}
-
 static int kicker_request_mask(struct vcorefs_profile *pwrctrl, enum dvfs_kicker kicker,
 			       enum dvfs_opp opp)
 {
@@ -233,19 +216,26 @@ int vcorefs_request_dvfs_opp(enum dvfs_kicker kicker, enum dvfs_opp opp)
 		return 0;
 	}
 
+	mutex_lock(&vcorefs_mutex);
+
 	if (pwrctrl->autok_lock) {
 		vcorefs_err("autoK lock: %d, Not allow kr: %d, opp: %d\n", pwrctrl->autok_lock,
 			    kicker, opp);
-		return -1;
+		r = -1;
+		goto out;
 	}
 
-	if (kicker_request_mask(pwrctrl, kicker, opp))
-		return -1;
+	if (kicker_request_mask(pwrctrl, kicker, opp)) {
+		r = -1;
+		goto out;
+	}
 
-	if (kicker_request_compare(kicker, opp))
-		return 0; /* already request, return OK */
-
-	mutex_lock(&vcorefs_mutex);
+	/*
+	 * Keep desired votes on failure, but always retry the group transition.
+	 * An unchanged vote (or another group's success) does not prove that
+	 * this group's previous request reached the hardware.
+	 */
+	kicker_table[kicker] = opp;
 
 	krconf.kicker = kicker;
 	krconf.opp = opp;
@@ -279,6 +269,7 @@ int vcorefs_request_dvfs_opp(enum dvfs_kicker kicker, enum dvfs_opp opp)
 		vcorefs_err("kicker: %d, unknown error handling, r: %d\n", kicker, r);
 		BUG();
 	}
+out:
 	mutex_unlock(&vcorefs_mutex);
 
 	return r;
