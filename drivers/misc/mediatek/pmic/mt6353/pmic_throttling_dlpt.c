@@ -683,7 +683,7 @@ void enable_dummy_load(unsigned int en)
 		/*1. enable isink pdn */
 		pmic_set_register_value(PMIC_CLK_DRV_ISINK3_CK_PDN, 0x1);
 		pmic_set_register_value(PMIC_CLK_DRV_ISINK2_CK_PDN, 0x1);
-		pmic_set_register_value(PMIC_CLK_DRV_32K_CK_PDN, 0x1);
+		/* Other ISINK users may still need the shared 32 kHz clock. */
 
 		/*1. enable isink pdn */
 		pmic_set_register_value(PMIC_CLK_DRV_CHRIND_CK_PDN, 0x1);
