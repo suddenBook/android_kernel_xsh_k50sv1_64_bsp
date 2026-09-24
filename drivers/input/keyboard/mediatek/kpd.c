@@ -20,6 +20,7 @@
 #include <linux/of_address.h>
 #include <linux/of_irq.h>
 #include <linux/clk.h>
+#include <linux/jiffies.h>
 #include <linux/mutex.h>
 
 #define KPD_NAME	"mtk-kpd"
@@ -52,8 +53,12 @@ static u16 kpd_keymap_state[KPD_NUM_MEMS];
  */
 static u16 kpd_valid_mask[KPD_NUM_MEMS];
 static u16 kpd_forced_up[KPD_NUM_MEMS];
+static unsigned long kpd_key_down_at[KPD_NUM_KEYS];
+/* Candidates for the running recovery; any observed release removes a key. */
+static u16 kpd_recovery_mask[KPD_NUM_MEMS];
 static unsigned int kpd_stuck_check_ms = 20000;
 static unsigned int kpd_irq_count;
+static int kpd_recover(bool force);
 static void kpd_stuck_work_func(struct work_struct *work);
 static DECLARE_DELAYED_WORK(kpd_stuck_work, kpd_stuck_work_func);
 #if (defined(CONFIG_ARCH_MT8173) || defined(CONFIG_ARCH_MT8163) || defined(CONFIG_ARCH_MT8167))
@@ -193,17 +198,9 @@ static ssize_t kpd_show_hw(struct device_driver *ddri, char *buf)
 
 static ssize_t kpd_store_recover(struct device_driver *ddri, const char *buf, size_t count)
 {
-	mutex_lock(&kpd_mutex);
-	if (kpd_stopping) {
-		mutex_unlock(&kpd_mutex);
-		return -ENODEV;
-	}
-	kpd_print("recovery requested from sysfs\n");
-	mod_delayed_work(system_wq, &kpd_stuck_work, 0);
-	mutex_unlock(&kpd_mutex);
-	/* The work takes kpd_mutex; sysfs removal waits for this flush. */
-	flush_delayed_work(&kpd_stuck_work);
-	return count;
+	int ret = kpd_recover(true);
+
+	return ret ? ret : count;
 }
 
 static DRIVER_ATTR(kpd_hw, S_IRUGO, kpd_show_hw, NULL);
@@ -466,13 +463,31 @@ static bool kpd_any_key_down(const u16 state[])
 	return false;
 }
 
-/* Re-arm the stuck-key check while a mapped key is down, drop it otherwise. */
+/* Other keys' edges must not postpone an existing continuous press's timeout. */
 static void kpd_arm_stuck_check(void)
 {
+	unsigned long now = jiffies;
+	unsigned long timeout = msecs_to_jiffies(READ_ONCE(kpd_stuck_check_ms));
+	unsigned long delay = 0;
+	bool pending = false;
+	int i;
+
 	if (READ_ONCE(kpd_stopping))
 		return;
-	if (kpd_any_key_down(kpd_keymap_state))
-		mod_delayed_work(system_wq, &kpd_stuck_work, msecs_to_jiffies(kpd_stuck_check_ms));
+	for (i = 0; i < KPD_NUM_KEYS; i++) {
+		unsigned long expires, remaining;
+		u16 mask = 1U << (i & 15);
+
+		if (!(kpd_valid_mask[i >> 4] & mask) || (kpd_keymap_state[i >> 4] & mask))
+			continue;
+		expires = kpd_key_down_at[i] + timeout;
+		remaining = time_after(expires, now) ? expires - now : 0;
+		if (!pending || remaining < delay)
+			delay = remaining;
+		pending = true;
+	}
+	if (pending)
+		mod_delayed_work(system_wq, &kpd_stuck_work, delay);
 	else
 		cancel_delayed_work(&kpd_stuck_work);
 }
@@ -490,6 +505,8 @@ static void kpd_report_changes(u16 new_state[])
 	u16 hw_keycode, linux_keycode;
 
 	for (i = 0; i < KPD_NUM_MEMS; i++) {
+		/* A release/repress during block recovery is a new continuous press. */
+		kpd_recovery_mask[i] &= ~new_state[i];
 		/* keys released in software: hidden until the hardware reads them up */
 		kpd_forced_up[i] &= ~new_state[i];
 		new_state[i] |= kpd_forced_up[i];
@@ -513,6 +530,8 @@ static void kpd_report_changes(u16 new_state[])
 				kpd_print("Linux keycode = 0\n");
 				continue;
 			}
+			if (pressed)
+				kpd_key_down_at[hw_keycode] = jiffies;
 			kpd_aee_handler(linux_keycode, pressed);
 
 			input_report_key(kpd_input_dev, linux_keycode, pressed);
@@ -551,29 +570,52 @@ static irqreturn_t kpd_irq_handler(int irq, void *dev_id)
 }
 
 /*
- * A mapped key has read "pressed" for kpd_stuck_check_ms.  Record the
- * evidence, repair what software can repair (pad configuration, block state),
+ * Recover expired continuous presses, or current presses on a manual request.
+ * Record evidence, repair what software can repair (pad configuration, block state),
  * and if the column is still low release the key in software so the input
  * core and PhoneWindowManager stop treating it as held (E-151: dead power
  * key, armed a11y/ringer chords, 160 auto-repeats).  Runs in process context.
  */
-static void kpd_stuck_work_func(struct work_struct *work)
+static int kpd_recover(bool force)
 {
 	u16 hw[KPD_NUM_MEMS], mask;
+	unsigned long now, timeout;
+	bool raw_down, expired = false;
 	char snap[512];
-	int i, j;
+	int i, j, ret = 0;
 
 	mutex_lock(&kpd_mutex);
-	if (kpd_stopping)
+	if (kpd_stopping) {
+		ret = -ENODEV;
 		goto out;
+	}
+	if (force)
+		kpd_print("recovery requested from sysfs\n");
 
+	tasklet_disable(&kpd_keymap_tasklet);
 	kpd_get_keymap_state(hw);
-	if (!kpd_any_key_down(hw))
-		goto out;	/* released meanwhile; the IRQ path reports it */
+	raw_down = kpd_any_key_down(hw);
+	kpd_report_changes(hw);
+	now = jiffies;
+	timeout = msecs_to_jiffies(READ_ONCE(kpd_stuck_check_ms));
+	memset(kpd_recovery_mask, 0, sizeof(kpd_recovery_mask));
+	for (i = 0; i < KPD_NUM_KEYS; i++) {
+		mask = 1U << (i & 15);
+		if (!(kpd_valid_mask[i >> 4] & mask) || (kpd_keymap_state[i >> 4] & mask))
+			continue;
+		if (force || time_after_eq(now, kpd_key_down_at[i] + timeout)) {
+			kpd_recovery_mask[i >> 4] |= mask;
+			expired = true;
+		}
+	}
+	/* Manual recovery may also retry a column already hidden by forced_up. */
+	if (!expired && !(force && raw_down))
+		goto rearm;
+	tasklet_enable(&kpd_keymap_tasklet);
 
 	kpd_hw_snapshot(snap, sizeof(snap));
-	kpd_print("stuck check: a matrix key has read pressed for %u ms, irq=%u\n%s",
-		  kpd_stuck_check_ms, kpd_irq_count, snap);
+	kpd_print("stuck check: recovering matrix keys, manual=%d timeout=%u ms, irq=%u\n%s",
+		  force, kpd_stuck_check_ms, kpd_irq_count, snap);
 
 	if (!kpd_kcol_pads_sane()) {
 		kpd_print("stuck check: column pad configuration disturbed, restoring\n");
@@ -582,22 +624,20 @@ static void kpd_stuck_work_func(struct work_struct *work)
 	kpd_hw_restart(kpd_dts_data.kpd_key_debounce);
 	/*
 	 * Debounce counts 32 kHz ticks.  Wait for a fresh scan and for the
-	 * tasklet the restart may trigger, so the shadow is current below.
+	 * tasklet the restart may trigger.  Released candidates are removed by
+	 * kpd_report_changes(); keys newly pressed here must get their own timeout.
 	 */
 	msleep(100 + 2 * (kpd_dts_data.kpd_key_debounce / 32 + 1));
 
-	kpd_get_keymap_state(hw);
-	if (!kpd_any_key_down(hw)) {
-		kpd_print("stuck check: cleared by pad/block re-init\n");
-		/* the block has raised, or will raise, the release IRQ itself */
-		goto out;
-	}
-
 	tasklet_disable(&kpd_keymap_tasklet);
+	kpd_get_keymap_state(hw);
+	if (!kpd_any_key_down(hw))
+		kpd_print("stuck check: cleared by pad/block re-init\n");
+	kpd_report_changes(hw);
 	for (i = 0; i < KPD_NUM_MEMS; i++) {
 		for (j = 0; j < 16; j++) {
 			mask = 1U << j;
-			if (!(kpd_valid_mask[i] & mask) || (hw[i] & mask) || (kpd_keymap_state[i] & mask))
+			if (!(kpd_recovery_mask[i] & mask) || (kpd_keymap_state[i] & mask))
 				continue;
 			kpd_print("stuck check: forcing release of Linux keycode %u (hw %d), column still low\n",
 				  kpd_keymap[(i << 4) + j], (i << 4) + j);
@@ -608,9 +648,18 @@ static void kpd_stuck_work_func(struct work_struct *work)
 			kpd_keymap_state[i] |= mask;
 		}
 	}
+rearm:
+	memset(kpd_recovery_mask, 0, sizeof(kpd_recovery_mask));
+	kpd_arm_stuck_check();
 	tasklet_enable(&kpd_keymap_tasklet);
 out:
 	mutex_unlock(&kpd_mutex);
+	return ret;
+}
+
+static void kpd_stuck_work_func(struct work_struct *work)
+{
+	kpd_recover(false);
 }
 
 /*********************************************************************/
@@ -1040,6 +1089,8 @@ static int kpd_pdrv_probe(struct platform_device *pdev)
 	kpd_memory_setting();
 	memset(kpd_valid_mask, 0, sizeof(kpd_valid_mask));
 	memset(kpd_forced_up, 0, sizeof(kpd_forced_up));
+	memset(kpd_key_down_at, 0, sizeof(kpd_key_down_at));
+	memset(kpd_recovery_mask, 0, sizeof(kpd_recovery_mask));
 
 	__set_bit(EV_KEY, input->evbit);
 
@@ -1200,6 +1251,8 @@ static int kpd_pdrv_remove(struct platform_device *pdev)
 	kpd_clk = NULL;
 	memset(kpd_forced_up, 0, sizeof(kpd_forced_up));
 	memset(kpd_valid_mask, 0, sizeof(kpd_valid_mask));
+	memset(kpd_key_down_at, 0, sizeof(kpd_key_down_at));
+	memset(kpd_recovery_mask, 0, sizeof(kpd_recovery_mask));
 	mutex_unlock(&kpd_mutex);
 	return 0;
 }
