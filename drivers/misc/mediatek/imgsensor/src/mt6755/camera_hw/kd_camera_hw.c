@@ -136,9 +136,10 @@ PowerCust PowerCustList = {
  * Stock PowerOnList for k50sv1_64_bsp, all ten entries in stock order, read
  * from the shipped kernel's data (152-byte PowerSequence records at
  * 0xffffffc00112e618).  The per-socket enable lists in the device tree
- * decide which of these a socket may run; only IMX145 (rear) and GC5025
- * (front) are fitted, the rest are kept so a search for an unfitted but
- * listed sensor powers the socket exactly as stock does.
+ * decide which of these a socket may run.  Only the front GC5025 remains
+ * fitted; the removed rear IMX145 and other absent sensors use placeholders
+ * in k50_sensorlist.h.  Keep the power entries aligned with the retained
+ * vendor sensor names without treating them as fitted hardware.
  */
 #define K50_SEQ_GC5025 \
 	{SensorMCLK, Vol_High, 0}, {DOVDD, Vol_1800, 0}, \
