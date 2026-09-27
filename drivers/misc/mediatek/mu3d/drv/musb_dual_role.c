@@ -113,6 +113,7 @@ void mt_usb_dual_role_to_host(void)
 int mt_usb_dual_role_init(struct musb *musb)
 {
 	struct dual_role_phy_desc *dual_desc;
+	struct dual_role_phy_instance *instance;
 
 	dual_desc = devm_kzalloc(musb->controller, sizeof(*dual_desc),
 			GFP_KERNEL);
@@ -128,13 +129,15 @@ int mt_usb_dual_role_init(struct musb *musb)
 	dual_desc->set_property = mt_dual_role_set_prop;
 	dual_desc->property_is_writeable = mt_dual_role_prop_is_writeable;
 
-	dr_usb = devm_dual_role_instance_register(musb->controller,
+	instance = devm_dual_role_instance_register(musb->controller,
 			dual_desc);
-	if (IS_ERR(dr_usb)) {
-		dev_info(musb->controller, "fail to register dual role usb\n");
-		return -EINVAL;
+	if (IS_ERR(instance)) {
+		dev_err(musb->controller, "failed to register dual role USB: %ld\n",
+			PTR_ERR(instance));
+		devm_kfree(musb->controller, dual_desc);
+		return PTR_ERR(instance);
 	}
+	dr_usb = instance;
 	return 0;
 }
 #endif /* CONFIG_DUAL_ROLE_USB_INTF */
-
